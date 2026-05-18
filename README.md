@@ -19,6 +19,24 @@ The app depends on `codex-auth` for account discovery, quota refreshes, account 
 
 The script runs `swift build`, creates a local app bundle at `dist/Codex Account Switcher.app`, generates the app icon, and ad-hoc signs the bundle when possible.
 
+## Build a DMG
+
+After building the app bundle, package it into a local DMG with:
+
+```bash
+rm -rf "dist/dmg-staging"
+mkdir -p "dist/dmg-staging"
+cp -R "dist/Codex Account Switcher.app" "dist/dmg-staging/"
+hdiutil create \
+  -volname "Codex Account Switcher" \
+  -srcfolder "dist/dmg-staging" \
+  -ov \
+  -format UDZO \
+  "dist/Codex Account Switcher.dmg"
+```
+
+The generated disk image will be written to `dist/Codex Account Switcher.dmg`.
+
 ## Run
 
 ```bash
