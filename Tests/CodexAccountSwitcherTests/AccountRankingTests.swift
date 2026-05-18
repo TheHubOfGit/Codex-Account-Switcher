@@ -182,6 +182,78 @@ struct AccountRankingTests {
     }
 
     @Test
+    func weeklyPaceSegmentsUseMinimumDaysLeftMinusOne() {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let summary = FleetQuotaSummary.make(
+            from: [
+                makeAccount(
+                    email: "four-days-left@example.com",
+                    fiveHourRemaining: 80,
+                    weeklyRemaining: 80,
+                    weeklyResetAt: now.addingTimeInterval((4 * 24 * 60 * 60) - 1)
+                ),
+                makeAccount(
+                    email: "seven-days-left@example.com",
+                    fiveHourRemaining: 90,
+                    weeklyRemaining: 90,
+                    weeklyResetAt: now.addingTimeInterval(7 * 24 * 60 * 60)
+                )
+            ],
+            now: now
+        )
+
+        #expect(summary.weeklyPaceSegmentCount == 3)
+    }
+
+    @Test
+    func weeklyPaceSegmentsClampToSixForAFullWeek() {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let summary = FleetQuotaSummary.make(
+            from: [
+                makeAccount(
+                    email: "full-week@example.com",
+                    fiveHourRemaining: 90,
+                    weeklyRemaining: 90,
+                    weeklyResetAt: now.addingTimeInterval(7 * 24 * 60 * 60)
+                )
+            ],
+            now: now
+        )
+
+        #expect(summary.weeklyPaceSegmentCount == 6)
+    }
+
+    @Test
+    func weeklyPaceSegmentsIgnoreStaleAccountsAndMissingResets() {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let summary = FleetQuotaSummary.make(
+            from: [
+                makeAccount(
+                    email: "stale-sooner@example.com",
+                    fiveHourRemaining: 80,
+                    weeklyRemaining: 80,
+                    isStale: true,
+                    weeklyResetAt: now.addingTimeInterval(24 * 60 * 60)
+                ),
+                makeAccount(
+                    email: "missing-reset@example.com",
+                    fiveHourRemaining: 80,
+                    weeklyRemaining: 80
+                ),
+                makeAccount(
+                    email: "fresh@example.com",
+                    fiveHourRemaining: 80,
+                    weeklyRemaining: 80,
+                    weeklyResetAt: now.addingTimeInterval(3 * 24 * 60 * 60)
+                )
+            ],
+            now: now
+        )
+
+        #expect(summary.weeklyPaceSegmentCount == 2)
+    }
+
+    @Test
     func strengthFallsBackToRemainingWhenResetTimeIsMissing() {
         let summary = FleetQuotaSummary.make(from: [
             makeAccount(email: "missing-reset@example.com", fiveHourRemaining: 35, weeklyRemaining: 45)

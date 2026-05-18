@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
+    private static let weeklyPaceDemoKey = "weeklyPaceDemoEnabled"
+
     @Published private(set) var accounts: [AccountSnapshot] = []
     @Published private(set) var authStatus = AuthStatus(
         autoSwitchEnabled: false,
@@ -17,6 +19,7 @@ final class AppState: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var isSwitching = false
     @Published private(set) var isSavingSettings = false
+    @Published private(set) var weeklyPaceDemoEnabled: Bool
 
     private let authRunner: CodexAuthRunner
     private let registryStore: RegistryStore
@@ -39,6 +42,7 @@ final class AppState: ObservableObject {
         self.registryStore = registryStore
         self.codexController = codexController
         self.notifications = notifications
+        weeklyPaceDemoEnabled = UserDefaults.standard.bool(forKey: Self.weeklyPaceDemoKey)
 
         registryStore.startWatching { [weak self] in
             Task { @MainActor [weak self] in
@@ -221,6 +225,11 @@ final class AppState: ObservableObject {
             lastErrorMessage = error.localizedDescription
             notifications.notify(title: "Threshold update failed", body: error.localizedDescription)
         }
+    }
+
+    func setWeeklyPaceDemo(enabled: Bool) {
+        weeklyPaceDemoEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.weeklyPaceDemoKey)
     }
 
     func openSettings() {

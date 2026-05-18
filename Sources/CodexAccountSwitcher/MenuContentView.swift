@@ -62,6 +62,12 @@ struct MenuContentView: View {
 
     private var fleetQuotaView: some View {
         let summary = appState.fleetQuotaSummary
+        let weeklyPaceSegments = appState.weeklyPaceDemoEnabled
+            ? max(summary.weeklyPaceSegmentCount, 6)
+            : summary.weeklyPaceSegmentCount
+        let weeklyStrengthValue = appState.weeklyPaceDemoEnabled
+            ? demoWeeklyPaceStrengthValue(paceSegments: weeklyPaceSegments)
+            : summary.averageWeeklyStrength
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -91,8 +97,16 @@ struct MenuContentView: View {
                 title: "Weekly average",
                 value: summary.averageWeeklyRemaining,
                 lowValue: summary.lowestWeeklyRemaining,
-                strengthValue: summary.averageWeeklyStrength
+                strengthValue: weeklyStrengthValue,
+                strengthSegments: 7,
+                paceSegments: weeklyPaceSegments
             )
+
+            if appState.weeklyPaceDemoEnabled {
+                Text("Weekly pace alert demo")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if summary.exhaustedAccounts > 0 || summary.staleAccounts > 0 {
                 Text("\(summary.exhaustedAccounts) exhausted / \(summary.staleAccounts) stale")
@@ -206,7 +220,14 @@ struct MenuContentView: View {
             .background(.quaternary.opacity(0.8), in: Capsule())
     }
 
-    private func quotaMeterWithStrength(title: String, value: Int?, lowValue: Int?, strengthValue: Int?) -> some View {
+    private func quotaMeterWithStrength(
+        title: String,
+        value: Int?,
+        lowValue: Int?,
+        strengthValue: Int?,
+        strengthSegments: Int? = nil,
+        paceSegments: Int = 0
+    ) -> some View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -224,7 +245,7 @@ struct MenuContentView: View {
             }
             .frame(maxWidth: .infinity)
 
-            strengthGauge(value: strengthValue)
+            strengthGauge(value: strengthValue, segments: strengthSegments, paceSegments: paceSegments)
         }
     }
 
@@ -244,24 +265,101 @@ struct MenuContentView: View {
         return "\(value)% avg"
     }
 
-    private func strengthGauge(value: Int?) -> some View {
-        ZStack {
-            Circle()
-                .stroke(.quaternary, lineWidth: 4)
-            Circle()
-                .trim(from: 0, to: CGFloat(Double(value ?? 0) / 100))
-                .stroke(
-                    quotaTint(for: value),
-                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
+    private func demoWeeklyPaceStrengthValue(paceSegments: Int) -> Int {
+        let pacePercent = Int((Double(max(paceSegments, 1)) / 7 * 100).rounded(.down))
+        return max(1, pacePercent - 8)
+    }
+
+    private func strengthGauge(value: Int?, segments: Int? = nil, paceSegments: Int = 0) -> some View {
+        let isPaceAlert = isInPaceAlertZone(value: value, segments: segments, paceSegments: paceSegments)
+
+        return ZStack {
+            if isPaceAlert {
+                Circle()
+                    .fill(Color(red: 0.95, green: 0.72, blue: 0.16))
+                    .padding(6)
+            }
+
+            if let segments, segments > 1 {
+                segmentedGaugeRing(value: value, segments: segments, paceSegments: paceSegments)
+            } else {
+                Circle()
+                    .stroke(.quaternary, lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: CGFloat(Double(value ?? 0) / 100))
+                    .stroke(
+                        quotaTint(for: value),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+            }
 
             Text(value.map(String.init) ?? "--")
                 .font(.caption2.monospacedDigit())
                 .fontWeight(.semibold)
+                .foregroundStyle(isPaceAlert ? .black : .primary)
         }
         .frame(width: 38, height: 38)
         .frame(width: 50)
+    }
+
+    private func isInPaceAlertZone(value: Int?, segments: Int?, paceSegments: Int) -> Bool {
+        guard let value,
+              let segments,
+              segments > 1,
+              paceSegments > 0 else {
+            return false
+        }
+
+        return Double(value) / 100 <= Double(paceSegments) / Double(segments)
+    }
+
+    private func segmentedGaugeRing(value: Int?, segments: Int, paceSegments: Int) -> some View {
+        let progress = Double(value ?? 0) / 100
+        let gap = 0.035
+        let segmentSpan = 1 / Double(segments)
+        let visibleSpan = max(0, segmentSpan - gap)
+        let paceSegmentCount = min(max(paceSegments, 0), segments)
+
+        return ZStack {
+            ForEach(0..<segments, id: \.self) { index in
+                let start = (Double(index) * segmentSpan) + (gap / 2)
+                let end = start + visibleSpan
+
+                Circle()
+                    .trim(from: start, to: end)
+                    .stroke(
+                        Color.secondary.opacity(0.25),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+
+                Circle()
+                    .trim(
+                        from: start,
+                        to: start + (visibleSpan * segmentFill(index: index, segments: segments, progress: progress))
+                    )
+                    .stroke(
+                        index < paceSegmentCount ? Color(red: 0.78, green: 0.56, blue: 0.10) : quotaTint(for: value),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+            }
+        }
+        .rotationEffect(.degrees(-90))
+    }
+
+    private func segmentFill(index: Int, segments: Int, progress: Double) -> Double {
+        let segmentStart = Double(index) / Double(segments)
+        let segmentEnd = Double(index + 1) / Double(segments)
+
+        if progress >= segmentEnd {
+            return 1
+        }
+
+        if progress <= segmentStart {
+            return 0
+        }
+
+        return (progress - segmentStart) * Double(segments)
     }
 
     private func quotaTint(for value: Int?) -> Color {

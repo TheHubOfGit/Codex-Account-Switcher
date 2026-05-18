@@ -20,6 +20,18 @@ struct SettingsView: View {
                 Text("Enable Auto Monitor")
             }
 
+            Toggle(isOn: Binding(
+                get: { appState.weeklyPaceDemoEnabled },
+                set: { appState.setWeeklyPaceDemo(enabled: $0) }
+            )) {
+                Text("Demo Weekly Pace Alert")
+            }
+
+            Text("Temporarily shows the weekly strength gauge in the exceed-pace alert state without changing account data.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             VStack(alignment: .leading, spacing: 10) {
                 Stepper(value: $fiveHourThreshold, in: 1...100) {
                     Text("5h threshold: \(fiveHourThreshold)% remaining")

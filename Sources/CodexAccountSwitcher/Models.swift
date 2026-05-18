@@ -312,6 +312,7 @@ enum AccountRanking {
 
 struct FleetQuotaSummary: Equatable {
     private static let weeklyBottleneckThreshold = 30.0
+    private static let dayDuration: TimeInterval = 24 * 60 * 60
 
     let totalAccounts: Int
     let freshAccounts: Int
@@ -323,6 +324,7 @@ struct FleetQuotaSummary: Equatable {
     let averageWeeklyRemaining: Int?
     let lowestFiveHourRemaining: Int?
     let lowestWeeklyRemaining: Int?
+    let weeklyPaceSegmentCount: Int
 
     var hasQuotaData: Bool {
         averageFiveHourRemaining != nil || averageWeeklyRemaining != nil
@@ -348,6 +350,7 @@ struct FleetQuotaSummary: Equatable {
         let weeklyStrengthValues = freshAccounts.compactMap {
             strength(for: $0.weekly, windowDuration: 7 * 24 * 60 * 60, now: now)
         }
+        let weeklyPaceSegmentCount = weeklyPaceSegmentCount(from: freshAccounts, now: now)
 
         return FleetQuotaSummary(
             totalAccounts: accounts.count,
@@ -359,7 +362,8 @@ struct FleetQuotaSummary: Equatable {
             averageFiveHourRemaining: average(fiveHourValues),
             averageWeeklyRemaining: average(weeklyValues),
             lowestFiveHourRemaining: fiveHourValues.min(),
-            lowestWeeklyRemaining: weeklyValues.min()
+            lowestWeeklyRemaining: weeklyValues.min(),
+            weeklyPaceSegmentCount: weeklyPaceSegmentCount
         )
     }
 
@@ -419,6 +423,24 @@ struct FleetQuotaSummary: Equatable {
         }
 
         return Int((values.reduce(0, +) / Double(values.count)).rounded())
+    }
+
+    private static func weeklyPaceSegmentCount(from accounts: [AccountSnapshot], now: Date) -> Int {
+        let daysLeftValues = accounts.compactMap { account -> Int? in
+            guard account.weekly.hasData,
+                  let resetAt = account.weekly.resetAt else {
+                return nil
+            }
+
+            let secondsLeft = max(0, resetAt.timeIntervalSince(now))
+            return Int(ceil(secondsLeft / dayDuration))
+        }
+
+        guard let minimumDaysLeft = daysLeftValues.min() else {
+            return 0
+        }
+
+        return min(max(minimumDaysLeft - 1, 0), 6)
     }
 }
 
