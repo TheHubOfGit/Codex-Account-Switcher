@@ -27,7 +27,7 @@ struct SettingsView: View {
                 Text("Demo Weekly Pace Alert")
             }
 
-            Text("Temporarily shows the weekly strength gauge in the exceed-pace alert state without changing account data.")
+            Text("Temporarily shows the weekly average bar and strength gauge in the exceed-pace alert state without changing account data.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
