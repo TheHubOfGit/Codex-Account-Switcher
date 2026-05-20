@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 
 @MainActor
-final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
+final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, NotificationManaging {
     private enum Action {
         static let autoSwitchCategory = "AUTO_SWITCH_PROMPT"
         static let switchAndRestart = "SWITCH_AND_RESTART"

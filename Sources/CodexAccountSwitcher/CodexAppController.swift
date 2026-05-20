@@ -15,7 +15,8 @@ enum CodexAppError: LocalizedError {
     }
 }
 
-struct CodexAppController {
+@MainActor
+final class CodexAppController: CodexAppControlling {
     let bundleIdentifier = "com.openai.codex"
 
     func relaunchCodex() async throws {

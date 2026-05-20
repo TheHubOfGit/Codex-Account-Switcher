@@ -32,6 +32,34 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: Binding(
+                    get: { appState.backgroundRefreshEnabled },
+                    set: { appState.setBackgroundRefresh(enabled: $0) }
+                )) {
+                    Text("Enable Background Refresh")
+                }
+
+                Picker(
+                    "Refresh every",
+                    selection: Binding(
+                        get: { appState.backgroundRefreshIntervalMinutes },
+                        set: { appState.setBackgroundRefreshInterval(minutes: $0) }
+                    )
+                ) {
+                    ForEach(AppState.backgroundRefreshIntervalOptions, id: \.self) { minutes in
+                        Text("\(minutes) minutes").tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!appState.backgroundRefreshEnabled)
+
+                Text("Runs the same quota refresh as the manual button, so fresh and stale accounts can both update when codex-auth returns newer usage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             VStack(alignment: .leading, spacing: 10) {
                 Stepper(value: $fiveHourThreshold, in: 1...100) {
                     Text("5h threshold: \(fiveHourThreshold)% remaining")

@@ -4,6 +4,11 @@ import Foundation
 @MainActor
 final class AppState: ObservableObject {
     private static let weeklyPaceDemoKey = "weeklyPaceDemoEnabled"
+    private static let backgroundRefreshEnabledKey = "backgroundRefreshEnabled"
+    private static let backgroundRefreshIntervalMinutesKey = "backgroundRefreshIntervalMinutes"
+    private static let defaultBackgroundRefreshIntervalMinutes = 10
+
+    static let backgroundRefreshIntervalOptions = [5, 10, 15, 30]
 
     @Published private(set) var accounts: [AccountSnapshot] = []
     @Published private(set) var authStatus = AuthStatus(
@@ -20,39 +25,61 @@ final class AppState: ObservableObject {
     @Published private(set) var isSwitching = false
     @Published private(set) var isSavingSettings = false
     @Published private(set) var weeklyPaceDemoEnabled: Bool
+    @Published private(set) var backgroundRefreshEnabled: Bool
+    @Published private(set) var backgroundRefreshIntervalMinutes: Int
 
-    private let authRunner: CodexAuthRunner
-    private let registryStore: RegistryStore
-    private let codexController: CodexAppController
-    private let notifications: NotificationManager
+    private let authRunner: any CodexAuthRunning
+    private let registryStore: any RegistryStoring
+    private let codexController: any CodexAppControlling
+    private let notifications: any NotificationManaging
+    private let userDefaults: UserDefaults
+    private let schedulesBackgroundRefresh: Bool
 
     private var lastObservedActiveAccountKey: String?
     private var suppressNextExternalSwitchNotification = false
     private var reloadTask: Task<Void, Never>?
+    private var backgroundRefreshTask: Task<Void, Never>?
     private var pendingAutoMonitorPromptTargetKey: String?
     private var settingsOpener: (() -> Void)?
 
     init(
-        authRunner: CodexAuthRunner = CodexAuthRunner(),
-        registryStore: RegistryStore = RegistryStore(),
-        codexController: CodexAppController = CodexAppController(),
-        notifications: NotificationManager = NotificationManager()
+        authRunner: any CodexAuthRunning = CodexAuthRunner(),
+        registryStore: any RegistryStoring = RegistryStore(),
+        codexController: any CodexAppControlling = CodexAppController(),
+        notifications: any NotificationManaging = NotificationManager(),
+        startAutomatically: Bool = true,
+        userDefaults: UserDefaults = .standard
     ) {
         self.authRunner = authRunner
         self.registryStore = registryStore
         self.codexController = codexController
         self.notifications = notifications
-        weeklyPaceDemoEnabled = UserDefaults.standard.bool(forKey: Self.weeklyPaceDemoKey)
+        self.userDefaults = userDefaults
+        schedulesBackgroundRefresh = startAutomatically
+        weeklyPaceDemoEnabled = userDefaults.bool(forKey: Self.weeklyPaceDemoKey)
+        backgroundRefreshEnabled = userDefaults.bool(forKey: Self.backgroundRefreshEnabledKey)
+        backgroundRefreshIntervalMinutes = Self.normalizedBackgroundRefreshInterval(
+            userDefaults.integer(forKey: Self.backgroundRefreshIntervalMinutesKey)
+        )
 
-        registryStore.startWatching { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleRegistryReload()
+        if startAutomatically {
+            registryStore.startWatching { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.scheduleRegistryReload()
+                }
             }
-        }
 
-        Task { @MainActor in
-            await refreshAll(showNotifications: false)
+            Task { @MainActor in
+                await refreshAll(showNotifications: false)
+            }
+
+            rescheduleBackgroundRefresh()
         }
+    }
+
+    deinit {
+        reloadTask?.cancel()
+        backgroundRefreshTask?.cancel()
     }
 
     var activeAccount: AccountSnapshot? {
@@ -128,7 +155,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func switchToAccount(_ account: AccountSnapshot) async {
+    func switchToAccount(_ account: AccountSnapshot, notifyOnSuccess: Bool = true) async {
         guard !isSwitching else { return }
 
         isSwitching = true
@@ -143,7 +170,9 @@ final class AppState: ObservableObject {
 
             try await codexController.relaunchCodex()
             lastErrorMessage = nil
-            notifications.notify(title: "Account switched", body: "Now using \(account.primaryLabel).")
+            if notifyOnSuccess {
+                notifications.notify(title: "Account switched", body: "Now using \(account.primaryLabel).")
+            }
         } catch {
             lastErrorMessage = error.localizedDescription
             notifications.notify(title: "Account switch failed", body: error.localizedDescription)
@@ -229,7 +258,22 @@ final class AppState: ObservableObject {
 
     func setWeeklyPaceDemo(enabled: Bool) {
         weeklyPaceDemoEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.weeklyPaceDemoKey)
+        userDefaults.set(enabled, forKey: Self.weeklyPaceDemoKey)
+    }
+
+    func setBackgroundRefresh(enabled: Bool, intervalMinutes: Int? = nil) {
+        backgroundRefreshEnabled = enabled
+        if let intervalMinutes {
+            backgroundRefreshIntervalMinutes = Self.normalizedBackgroundRefreshInterval(intervalMinutes)
+        }
+
+        userDefaults.set(backgroundRefreshEnabled, forKey: Self.backgroundRefreshEnabledKey)
+        userDefaults.set(backgroundRefreshIntervalMinutes, forKey: Self.backgroundRefreshIntervalMinutesKey)
+        rescheduleBackgroundRefresh()
+    }
+
+    func setBackgroundRefreshInterval(minutes: Int) {
+        setBackgroundRefresh(enabled: backgroundRefreshEnabled, intervalMinutes: minutes)
     }
 
     func openSettings() {
@@ -271,6 +315,32 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func rescheduleBackgroundRefresh() {
+        backgroundRefreshTask?.cancel()
+        backgroundRefreshTask = nil
+
+        guard schedulesBackgroundRefresh, backgroundRefreshEnabled else {
+            return
+        }
+
+        backgroundRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                try? await Task.sleep(for: .seconds(backgroundRefreshIntervalMinutes * 60))
+                guard !Task.isCancelled else { return }
+                await runBackgroundRefreshTick()
+            }
+        }
+    }
+
+    private func runBackgroundRefreshTick() async {
+        guard !isRefreshing, !isSwitching else {
+            return
+        }
+
+        await refreshAll(showNotifications: false)
+    }
+
     private func reloadFromDisk(showNotifications: Bool) async {
         do {
             let snapshot = try registryStore.loadSnapshot()
@@ -294,22 +364,16 @@ final class AppState: ObservableObject {
         lastObservedActiveAccountKey = nextActive
         evaluateAutoMonitor()
 
-        guard notifyOnExternalSwitch,
-              let previousActive,
-              let nextActive,
-              previousActive != nextActive else {
-            if suppressNextExternalSwitchNotification {
-                suppressNextExternalSwitchNotification = false
-            }
-            return
-        }
+        let decision = AccountSwitchNotificationPolicy.decision(
+            previousActive: previousActive,
+            nextActive: nextActive,
+            notifyOnExternalSwitch: notifyOnExternalSwitch,
+            suppressNextExternalSwitchNotification: &suppressNextExternalSwitchNotification,
+            pendingAutoMonitorPromptTargetKey: &pendingAutoMonitorPromptTargetKey
+        )
 
-        if suppressNextExternalSwitchNotification {
-            suppressNextExternalSwitchNotification = false
-            return
-        }
-
-        if let account = accounts.first(where: { $0.accountKey == nextActive }) {
+        if case .notifyExternalSwitch(let accountKey) = decision,
+           let account = accounts.first(where: { $0.accountKey == accountKey }) {
             notifications.notify(title: "Auto-switched account", body: "Active account changed to \(account.primaryLabel).")
         }
     }
@@ -332,6 +396,14 @@ final class AppState: ObservableObject {
         )
     }
 
+    private static func normalizedBackgroundRefreshInterval(_ value: Int) -> Int {
+        guard backgroundRefreshIntervalOptions.contains(value) else {
+            return defaultBackgroundRefreshIntervalMinutes
+        }
+
+        return value
+    }
+
     private func evaluateAutoMonitor() {
         guard authStatus.autoSwitchEnabled,
               !isSwitching,
@@ -350,7 +422,7 @@ final class AppState: ObservableObject {
         notifications.promptForAutoSwitch(from: activeAccount, to: candidate) { [weak self] in
             guard let self else { return }
             defer { pendingAutoMonitorPromptTargetKey = nil }
-            await switchToAccount(candidate)
+            await switchToAccount(candidate, notifyOnSuccess: false)
         }
     }
 }

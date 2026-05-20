@@ -1,6 +1,6 @@
 import Foundation
 
-final class RegistryStore {
+final class RegistryStore: RegistryStoring {
     private let registryURL: URL
     private var directorySource: DispatchSourceFileSystemObject?
     private var directoryFileDescriptor: CInt = -1

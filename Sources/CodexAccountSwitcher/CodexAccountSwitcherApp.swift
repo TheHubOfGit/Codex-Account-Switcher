@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import Darwin
 import SwiftUI
 
 @main
@@ -20,10 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let appState = AppState()
 
     private var statusItem: NSStatusItem?
+    private var statusItemObservation: AnyCancellable?
     private let popover = NSPopover()
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard isPrimaryAppInstance else {
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
         appState.setSettingsOpener { [weak self] in
             self?.showSettingsWindow()
@@ -35,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
         statusItem = nil
     }
 
@@ -49,13 +60,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     private func configureStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = MenuBarIcon.multiAuth()
-        item.button?.imagePosition = .imageOnly
-        item.button?.toolTip = "Codex Account Switcher"
+        guard statusItem == nil else { return }
+
+        let item = NSStatusBar.system.statusItem(withLength: 34)
         item.button?.target = self
         item.button?.action = #selector(togglePopover(_:))
         statusItem = item
+        updateStatusItem()
+        observeStatusItemState()
+    }
+
+    private func observeStatusItemState() {
+        statusItemObservation = appState.$accounts
+            .sink { [weak self] _ in
+                self?.updateStatusItem()
+            }
+    }
+
+    private func updateStatusItem() {
+        guard let button = statusItem?.button else { return }
+
+        let meterState = MenuBarQuotaMeterState(activeAccount: appState.activeAccount)
+        var image: NSImage?
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            image = MenuBarIcon.multiAuthWithFiveHourMeter(state: meterState)
+        }
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.toolTip = "Codex Account Switcher - \(meterState.accessibilityDescription)"
     }
 
     @objc private func togglePopover(_ sender: NSStatusBarButton) {
@@ -102,5 +134,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             try? await Task.sleep(for: .seconds(3))
             appState.sendTestAutoSwitchNotification()
         }
+    }
+
+    private var isPrimaryAppInstance: Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            return true
+        }
+
+        let currentProcessID = getpid()
+        return NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .allSatisfy { $0.processIdentifier == currentProcessID }
     }
 }

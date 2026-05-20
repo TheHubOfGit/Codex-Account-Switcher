@@ -21,7 +21,7 @@ enum CodexAuthError: LocalizedError, Equatable {
     }
 }
 
-actor CodexAuthRunner {
+actor CodexAuthRunner: CodexAuthRunning {
     private let fileManager: FileManager
     private let environment: [String: String]
 
@@ -59,7 +59,7 @@ actor CodexAuthRunner {
         _ = try run(arguments: ["config", "api", enabled ? "enable" : "disable"])
     }
 
-    func executableExists() -> Bool {
+    func executableExists() async -> Bool {
         (try? executableURL()) != nil
     }
 
