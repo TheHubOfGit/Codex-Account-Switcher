@@ -20,7 +20,10 @@ final class RegistryStore: RegistryStoring {
 
         do {
             let data = try Data(contentsOf: registryURL)
-            return try RegistrySnapshot.decode(from: data)
+            var snapshot = try RegistrySnapshot.decode(from: data)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: registryURL.path)
+            snapshot.refreshedAt = attributes?[.modificationDate] as? Date
+            return snapshot
         } catch let issue as SetupIssue {
             throw issue
         } catch {

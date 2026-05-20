@@ -63,6 +63,7 @@ struct RegistrySnapshot: Decodable, Equatable {
     let autoSwitch: AutoSwitchConfig
     let api: APIConfig
     let accounts: [RegistryAccount]
+    var refreshedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case activeAccountKey = "active_account_key"
@@ -77,20 +78,21 @@ struct RegistrySnapshot: Decodable, Equatable {
     }
 
     func accountSnapshots(now: Date = .now, staleAfter seconds: TimeInterval = 30 * 60) -> [AccountSnapshot] {
-        accounts.map { account in
+        let isSnapshotStale = refreshedAt.map { now.timeIntervalSince($0) > seconds } ?? false
+
+        return accounts.map { account in
             let isActive = account.accountKey == activeAccountKey
             let lastRefreshDate = account.lastUsageAt.map(Date.init(timeIntervalSince1970:))
-            let isStale = lastRefreshDate.map { now.timeIntervalSince($0) > seconds } ?? true
 
             let fiveHour = QuotaWindowState(
                 usedPercent: account.lastUsage?.primary?.usedPercent,
                 resetAt: account.lastUsage?.primary?.resetsAt.map(Date.init(timeIntervalSince1970:)),
-                isStale: isStale
+                isStale: isSnapshotStale
             )
             let weekly = QuotaWindowState(
                 usedPercent: account.lastUsage?.secondary?.usedPercent,
                 resetAt: account.lastUsage?.secondary?.resetsAt.map(Date.init(timeIntervalSince1970:)),
-                isStale: isStale
+                isStale: isSnapshotStale
             )
 
             return AccountSnapshot(

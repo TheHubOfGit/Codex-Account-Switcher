@@ -81,7 +81,7 @@ struct RegistrySnapshotTests {
     }
 
     @Test
-    func marksMissingOrOldUsageAsStale() throws {
+    func keepsOldAccountActivityFreshWhenSnapshotWasRecentlyRefreshed() throws {
         let data = Data(
             """
             {
@@ -121,7 +121,57 @@ struct RegistrySnapshotTests {
             """.utf8
         )
 
-        let snapshot = try RegistrySnapshot.decode(from: data)
+        var snapshot = try RegistrySnapshot.decode(from: data)
+        snapshot.refreshedAt = Date(timeIntervalSince1970: 1778987890)
+        let accounts = snapshot.accountSnapshots(now: Date(timeIntervalSince1970: 1778987900))
+
+        #expect(!accounts[0].isUsageStale)
+        #expect(accounts[0].fiveHour.remainingPercent == 50)
+    }
+
+    @Test
+    func marksOldSnapshotAsStale() throws {
+        let data = Data(
+            """
+            {
+              "active_account_key": "acct-1",
+              "auto_switch": {
+                "enabled": false,
+                "threshold_5h_percent": 10,
+                "threshold_weekly_percent": 5
+              },
+              "api": {
+                "usage": false
+              },
+              "accounts": [
+                {
+                  "account_key": "acct-1",
+                  "email": "stale@example.com",
+                  "alias": "",
+                  "account_name": null,
+                  "plan": "team",
+                  "last_usage": {
+                    "primary": {
+                      "used_percent": 50,
+                      "window_minutes": 300,
+                      "resets_at": 1779005309
+                    },
+                    "secondary": {
+                      "used_percent": 20,
+                      "window_minutes": 10080,
+                      "resets_at": 1779592109
+                    },
+                    "plan_type": "team"
+                  },
+                  "last_usage_at": 1778987890
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        var snapshot = try RegistrySnapshot.decode(from: data)
+        snapshot.refreshedAt = Date(timeIntervalSince1970: 1778980000)
         let accounts = snapshot.accountSnapshots(now: Date(timeIntervalSince1970: 1778987900))
 
         #expect(accounts[0].isUsageStale)
