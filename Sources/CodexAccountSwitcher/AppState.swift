@@ -308,6 +308,14 @@ final class AppState: ObservableObject {
     }
 
     func runQuotaPrimerNow(now: Date = .now) async {
+        await runQuotaPrimer(now: now, mode: .expiredOrMissing)
+    }
+
+    func runManualQuotaPrimerNow(now: Date = .now) async {
+        await runQuotaPrimer(now: now, mode: .allAccounts)
+    }
+
+    private func runQuotaPrimer(now: Date, mode: QuotaPrimerPlanner.Mode) async {
         guard quotaPrimerEnabled,
               !isPrimingQuota,
               !isRefreshing,
@@ -318,10 +326,13 @@ final class AppState: ObservableObject {
         let eligibleAccounts = QuotaPrimerPlanner.eligibleAccounts(
             from: accounts,
             now: now,
-            recentAttempts: quotaPrimerAttempts
+            recentAttempts: quotaPrimerAttempts,
+            mode: mode
         )
         guard !eligibleAccounts.isEmpty else {
-            lastQuotaPrimerStatusMessage = "No eligible accounts to prime."
+            lastQuotaPrimerStatusMessage = mode == .allAccounts
+                ? "No accounts available to prime."
+                : "No eligible accounts to prime."
             return
         }
 

@@ -83,8 +83,8 @@ struct SettingsView: View {
                 .disabled(!appState.quotaPrimerEnabled)
 
                 HStack(spacing: 12) {
-                    Button(appState.isPrimingQuota ? "Priming…" : "Prime Eligible Now") {
-                        Task { await appState.runQuotaPrimerNow() }
+                    Button(appState.isPrimingQuota ? "Priming…" : "Prime Accounts Now") {
+                        Task { await appState.runManualQuotaPrimerNow() }
                     }
                     .disabled(!appState.quotaPrimerEnabled || appState.isPrimingQuota || appState.isRefreshing || appState.isSwitching)
                 }
@@ -96,7 +96,7 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Text("When a tracked reset time has passed or quota data is missing, this uses that account's stored auth in an isolated Codex CLI home, sends one minimal prompt, then refreshes usage. Each primer consumes real Codex usage.")
+                Text("The manual button primes every usable account now. Scheduled runs only prime accounts with missing quota data or a reset time that has passed. Each primer uses isolated stored auth and consumes real Codex usage.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

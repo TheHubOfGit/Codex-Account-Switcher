@@ -55,5 +55,5 @@ swift test
 
 - Manual switches relaunch the official Codex desktop app.
 - Auto-switch notifications require notification permission.
-- Scheduled quota priming uses an isolated temporary `CODEX_HOME` with the stored account auth file to send a minimal Codex CLI prompt after a reset time has passed or when quota data is missing. It does not change the active account, and each primer consumes real Codex usage.
+- Scheduled quota priming uses an isolated temporary `CODEX_HOME` with the stored account auth file to send a minimal Codex CLI prompt after a reset time has passed or when quota data is missing. The manual prime action can prime every usable account immediately. Priming does not change the active account, and each primer consumes real Codex usage.
 - Build output is intentionally ignored; rebuild locally with `./scripts/build_app.sh`.

@@ -113,7 +113,7 @@ struct QuotaPrimerTests {
     }
 
     @Test
-    func manualPrimerReportsWhenNoAccountsAreEligible() async {
+    func manualPrimerPrimesAccountsWithActiveWindows() async {
         let now = Date(timeIntervalSince1970: 1_779_000_000)
         let authRunner = RecordingAuthRunner()
         let appState = AppState(
@@ -134,10 +134,12 @@ struct QuotaPrimerTests {
 
         await appState.refreshAll(showNotifications: false)
         appState.setQuotaPrimer(enabled: true)
-        await appState.runQuotaPrimerNow(now: now)
+        await appState.runManualQuotaPrimerNow(now: now)
 
-        #expect(await authRunner.primeRequests.isEmpty)
-        #expect(appState.lastQuotaPrimerStatusMessage == "No eligible accounts to prime.")
+        #expect(await authRunner.primeRequests == [
+            .init(accountKey: "active", accountQuery: "active@example.com")
+        ])
+        #expect(appState.lastQuotaPrimerStatusMessage == "Primed 1 account and refreshed quota.")
     }
 
     @Test

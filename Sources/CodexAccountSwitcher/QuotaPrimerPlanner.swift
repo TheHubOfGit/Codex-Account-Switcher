@@ -3,16 +3,26 @@ import Foundation
 enum QuotaPrimerPlanner {
     static let attemptCooldown: TimeInterval = 60 * 60
 
+    enum Mode {
+        case expiredOrMissing
+        case allAccounts
+    }
+
     static func eligibleAccounts(
         from accounts: [AccountSnapshot],
         now: Date = .now,
-        recentAttempts: [String: Date]
+        recentAttempts: [String: Date],
+        mode: Mode = .expiredOrMissing
     ) -> [AccountSnapshot] {
         accounts.filter { account in
             guard account.hasIdentity,
                   !account.isUsageStale,
                   !hasRecentAttempt(account, now: now, recentAttempts: recentAttempts) else {
                 return false
+            }
+
+            if mode == .allAccounts {
+                return true
             }
 
             return accountNeedsPrimer(account, now: now)
