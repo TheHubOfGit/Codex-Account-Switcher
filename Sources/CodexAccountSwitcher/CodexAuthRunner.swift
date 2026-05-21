@@ -67,17 +67,7 @@ actor CodexAuthRunner: CodexAuthRunning {
         }
 
         _ = try runCodex(
-            arguments: [
-                "exec",
-                "--ephemeral",
-                "--skip-git-repo-check",
-                "--ignore-rules",
-                "--sandbox",
-                "read-only",
-                "--ask-for-approval",
-                "never",
-                "Reply exactly: hi"
-            ],
+            arguments: CodexPrimerCommand.arguments,
             environmentOverrides: workspace.environmentOverrides
         )
     }

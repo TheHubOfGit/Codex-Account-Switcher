@@ -151,7 +151,7 @@ struct QuotaPrimerTests {
         try FileManager.default.createDirectory(at: accountsDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let storedAuth = accountsDirectory.appendingPathComponent("acct-1.auth.json")
+        let storedAuth = accountsDirectory.appendingPathComponent("YWNjdC0x.auth.json")
         try Data(#"{"token":"stored"}"#.utf8).write(to: storedAuth)
 
         let workspace = try CodexPrimerWorkspace.make(
@@ -165,6 +165,15 @@ struct QuotaPrimerTests {
         #expect(FileManager.default.fileExists(atPath: isolatedAuth.path))
         #expect(try String(contentsOf: isolatedAuth, encoding: .utf8) == #"{"token":"stored"}"#)
         #expect(workspace.environmentOverrides["CODEX_HOME"] == workspace.codexHome.path)
+    }
+
+    @Test
+    func primerCommandPlacesGlobalApprovalOptionBeforeExecSubcommand() {
+        let arguments = CodexPrimerCommand.arguments
+
+        #expect(arguments.firstIndex(of: "--ask-for-approval")! < arguments.firstIndex(of: "exec")!)
+        #expect(arguments.contains("--ephemeral"))
+        #expect(arguments.last == "Reply exactly: hi")
     }
 }
 

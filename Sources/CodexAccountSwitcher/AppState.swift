@@ -352,7 +352,7 @@ final class AppState: ObservableObject {
                 primedCount += 1
             } catch {
                 lastErrorMessage = error.localizedDescription
-                lastQuotaPrimerStatusMessage = "Quota primer failed for \(account.primaryLabel)."
+                lastQuotaPrimerStatusMessage = "Quota primer failed for \(account.primaryLabel): \(error.localizedDescription)"
                 notifications.notify(title: "Quota primer failed", body: error.localizedDescription)
             }
         }
