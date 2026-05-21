@@ -96,7 +96,7 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Text("The manual button primes every usable account now. Scheduled runs only prime accounts with missing quota data or a reset time that has passed. Each primer uses isolated stored auth and consumes real Codex usage.")
+                Text("The manual button primes every usable account now. Scheduled runs only prime accounts showing a full weekly window and at least 99% of the 5h quota left. Each primer uses isolated stored auth and consumes real Codex usage.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

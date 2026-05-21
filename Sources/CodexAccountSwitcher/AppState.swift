@@ -308,7 +308,7 @@ final class AppState: ObservableObject {
     }
 
     func runQuotaPrimerNow(now: Date = .now) async {
-        await runQuotaPrimer(now: now, mode: .expiredOrMissing)
+        await runQuotaPrimer(now: now, mode: .fullWindowOnly)
     }
 
     func runManualQuotaPrimerNow(now: Date = .now) async {

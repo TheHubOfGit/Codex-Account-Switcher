@@ -80,7 +80,7 @@ struct QuotaPrimerTests {
     }
 
     @Test
-    func scheduledPrimerPrimesEligibleAccountsAndRefreshesAfterward() async {
+    func scheduledPrimerPrimesOnlyFullWindowAccountsAndRefreshesAfterward() async {
         let now = Date(timeIntervalSince1970: 1_779_000_000)
         let authRunner = RecordingAuthRunner()
         let appState = AppState(
@@ -89,8 +89,8 @@ struct QuotaPrimerTests {
                 snapshot: makePrimerRegistrySnapshot(
                     activeAccountKey: "active",
                     accounts: [
-                        makePrimerRegistryAccount(accountKey: "active", email: "active@example.com", weeklyResetAt: now.addingTimeInterval(86_400)),
-                        makePrimerRegistryAccount(accountKey: "expired", email: "expired@example.com", weeklyResetAt: now.addingTimeInterval(-60))
+                        makePrimerRegistryAccount(accountKey: "active", email: "active@example.com", weeklyResetAt: now.addingTimeInterval(5 * 24 * 60 * 60)),
+                        makePrimerRegistryAccount(accountKey: "full-window", email: "full@example.com", weeklyResetAt: now.addingTimeInterval((6 * 24 * 60 * 60) + 60))
                     ]
                 )
             ),
@@ -106,10 +106,30 @@ struct QuotaPrimerTests {
 
         let requests = await authRunner.primeRequests
         #expect(requests == [
-            .init(accountKey: "expired", accountQuery: "expired@example.com")
+            .init(accountKey: "full-window", accountQuery: "full@example.com")
         ])
         #expect(await authRunner.refreshUsageCount == 2)
         #expect(appState.lastQuotaPrimerStatusMessage == "Primed 1 account and refreshed quota.")
+    }
+
+    @Test
+    func plannerAutoModeRequiresSevenDayWeeklyWindowAndFullFiveHourQuota() {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let accounts = [
+            makePrimerAccount(accountKey: "full", email: "full@example.com", fiveHourRemaining: 99, weeklyResetAt: now.addingTimeInterval((6 * 24 * 60 * 60) + 60)),
+            makePrimerAccount(accountKey: "low-five", email: "low-five@example.com", fiveHourRemaining: 98, weeklyResetAt: now.addingTimeInterval((6 * 24 * 60 * 60) + 60)),
+            makePrimerAccount(accountKey: "short-week", email: "short-week@example.com", fiveHourRemaining: 99, weeklyResetAt: now.addingTimeInterval((6 * 24 * 60 * 60) - 60)),
+            makePrimerAccount(accountKey: "expired", email: "expired@example.com", fiveHourRemaining: 99, weeklyResetAt: now.addingTimeInterval(-60))
+        ]
+
+        let eligible = QuotaPrimerPlanner.eligibleAccounts(
+            from: accounts,
+            now: now,
+            recentAttempts: [:],
+            mode: .fullWindowOnly
+        )
+
+        #expect(eligible.map(\.accountKey) == ["full"])
     }
 
     @Test
@@ -189,6 +209,7 @@ private func makePrimerAccount(
     email: String,
     isActive: Bool = false,
     hasUsage: Bool = true,
+    fiveHourRemaining: Int = 99,
     weeklyResetAt: Date? = nil
 ) -> AccountSnapshot {
     AccountSnapshot(
@@ -199,7 +220,7 @@ private func makePrimerAccount(
         plan: "Business",
         isActive: isActive,
         fiveHour: QuotaWindowState(
-            usedPercent: hasUsage ? 1 : nil,
+            usedPercent: hasUsage ? 100 - fiveHourRemaining : nil,
             resetAt: hasUsage ? weeklyResetAt : nil,
             isStale: false
         ),

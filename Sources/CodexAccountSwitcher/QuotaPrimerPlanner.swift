@@ -2,9 +2,11 @@ import Foundation
 
 enum QuotaPrimerPlanner {
     static let attemptCooldown: TimeInterval = 60 * 60
+    private static let dayDuration: TimeInterval = 24 * 60 * 60
 
     enum Mode {
         case expiredOrMissing
+        case fullWindowOnly
         case allAccounts
     }
 
@@ -23,6 +25,10 @@ enum QuotaPrimerPlanner {
 
             if mode == .allAccounts {
                 return true
+            }
+
+            if mode == .fullWindowOnly {
+                return accountHasFullWindow(account, now: now)
             }
 
             return accountNeedsPrimer(account, now: now)
@@ -44,6 +50,16 @@ enum QuotaPrimerPlanner {
         }
 
         return resetAt <= now
+    }
+
+    private static func accountHasFullWindow(_ account: AccountSnapshot, now: Date) -> Bool {
+        guard let fiveHourRemaining = account.fiveHour.remainingPercent,
+              fiveHourRemaining >= 99,
+              let weeklyResetAt = account.weekly.resetAt else {
+            return false
+        }
+
+        return weeklyResetAt.timeIntervalSince(now) > 6 * dayDuration
     }
 
     private static func hasRecentAttempt(
