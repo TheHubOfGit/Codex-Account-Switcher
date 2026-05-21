@@ -1,14 +1,14 @@
 import Foundation
 
 enum CodexAuthError: LocalizedError, Equatable {
-    case executableNotFound
+    case executableNotFound(name: String)
     case commandFailed(command: String, code: Int32, stderr: String)
     case invalidThresholds
 
     var errorDescription: String? {
         switch self {
-        case .executableNotFound:
-            return "codex-auth is not installed or not available on PATH."
+        case .executableNotFound(let name):
+            return "\(name) is not installed or not available on PATH."
         case .commandFailed(let command, let code, let stderr):
             let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if detail.isEmpty {
@@ -43,6 +43,29 @@ actor CodexAuthRunner: CodexAuthRunning {
         _ = try run(arguments: ["switch", query])
     }
 
+    func primeUsage(accountQuery: String, restoreQuery: String?) async throws {
+        try await switchAccount(query: accountQuery)
+
+        do {
+            _ = try runCodex(arguments: [
+                "exec",
+                "--ephemeral",
+                "--skip-git-repo-check",
+                "--ignore-rules",
+                "--sandbox",
+                "read-only",
+                "--ask-for-approval",
+                "never",
+                "Reply exactly: hi"
+            ])
+        } catch {
+            try? await restoreAccountIfNeeded(accountQuery: accountQuery, restoreQuery: restoreQuery)
+            throw error
+        }
+
+        try await restoreAccountIfNeeded(accountQuery: accountQuery, restoreQuery: restoreQuery)
+    }
+
     func setAutoSwitch(enabled: Bool) async throws {
         _ = try run(arguments: ["config", "auto", enabled ? "enable" : "disable"])
     }
@@ -60,11 +83,19 @@ actor CodexAuthRunner: CodexAuthRunning {
     }
 
     func executableExists() async -> Bool {
-        (try? executableURL()) != nil
+        (try? executableURL(named: "codex-auth")) != nil
     }
 
     private func run(arguments: [String]) throws -> String {
-        let executable = try executableURL()
+        try run(executableName: "codex-auth", arguments: arguments)
+    }
+
+    private func runCodex(arguments: [String]) throws -> String {
+        try run(executableName: "codex", arguments: arguments)
+    }
+
+    private func run(executableName: String, arguments: [String]) throws -> String {
+        let executable = try executableURL(named: executableName)
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -85,7 +116,7 @@ actor CodexAuthRunner: CodexAuthRunning {
 
         guard process.terminationStatus == 0 else {
             throw CodexAuthError.commandFailed(
-                command: "codex-auth \(arguments.joined(separator: " "))",
+                command: "\(executableName) \(arguments.joined(separator: " "))",
                 code: process.terminationStatus,
                 stderr: error
             )
@@ -94,10 +125,18 @@ actor CodexAuthRunner: CodexAuthRunning {
         return output
     }
 
-    private func executableURL() throws -> URL {
+    private func restoreAccountIfNeeded(accountQuery: String, restoreQuery: String?) async throws {
+        guard let restoreQuery, restoreQuery != accountQuery else {
+            return
+        }
+
+        try await switchAccount(query: restoreQuery)
+    }
+
+    private func executableURL(named executableName: String) throws -> URL {
         let directCandidates = [
-            "/opt/homebrew/bin/codex-auth",
-            "/usr/local/bin/codex-auth"
+            "/opt/homebrew/bin/\(executableName)",
+            "/usr/local/bin/\(executableName)"
         ]
 
         for path in directCandidates where fileManager.isExecutableFile(atPath: path) {
@@ -106,12 +145,12 @@ actor CodexAuthRunner: CodexAuthRunning {
 
         let pathValue = environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         for component in pathValue.split(separator: ":") {
-            let candidate = String(component) + "/codex-auth"
+            let candidate = String(component) + "/\(executableName)"
             if fileManager.isExecutableFile(atPath: candidate) {
                 return URL(fileURLWithPath: candidate)
             }
         }
 
-        throw CodexAuthError.executableNotFound
+        throw CodexAuthError.executableNotFound(name: executableName)
     }
 }

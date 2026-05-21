@@ -55,4 +55,5 @@ swift test
 
 - Manual switches relaunch the official Codex desktop app.
 - Auto-switch notifications require notification permission.
+- Scheduled quota priming uses the Codex CLI to send a minimal prompt on eligible accounts after a reset time has passed or when quota data is missing. Each primer consumes real Codex usage.
 - Build output is intentionally ignored; rebuild locally with `./scripts/build_app.sh`.

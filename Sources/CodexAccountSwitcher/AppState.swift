@@ -7,8 +7,12 @@ final class AppState: ObservableObject {
     private static let backgroundRefreshEnabledKey = "backgroundRefreshEnabled"
     private static let backgroundRefreshIntervalMinutesKey = "backgroundRefreshIntervalMinutes"
     private static let defaultBackgroundRefreshIntervalMinutes = 10
+    private static let quotaPrimerEnabledKey = "quotaPrimerEnabled"
+    private static let quotaPrimerIntervalMinutesKey = "quotaPrimerIntervalMinutes"
+    private static let defaultQuotaPrimerIntervalMinutes = 30
 
     static let backgroundRefreshIntervalOptions = [5, 10, 15, 30]
+    static let quotaPrimerIntervalOptions = [30, 60, 120, 360]
 
     @Published private(set) var accounts: [AccountSnapshot] = []
     @Published private(set) var authStatus = AuthStatus(
@@ -27,6 +31,9 @@ final class AppState: ObservableObject {
     @Published private(set) var weeklyPaceDemoEnabled: Bool
     @Published private(set) var backgroundRefreshEnabled: Bool
     @Published private(set) var backgroundRefreshIntervalMinutes: Int
+    @Published private(set) var quotaPrimerEnabled: Bool
+    @Published private(set) var quotaPrimerIntervalMinutes: Int
+    @Published private(set) var isPrimingQuota = false
 
     private let authRunner: any CodexAuthRunning
     private let registryStore: any RegistryStoring
@@ -39,8 +46,10 @@ final class AppState: ObservableObject {
     private var suppressNextExternalSwitchNotification = false
     private var reloadTask: Task<Void, Never>?
     private var backgroundRefreshTask: Task<Void, Never>?
+    private var quotaPrimerTask: Task<Void, Never>?
     private var pendingAutoMonitorPromptTargetKey: String?
     private var settingsOpener: (() -> Void)?
+    private var quotaPrimerAttempts: [String: Date] = [:]
 
     init(
         authRunner: any CodexAuthRunning = CodexAuthRunner(),
@@ -61,6 +70,10 @@ final class AppState: ObservableObject {
         backgroundRefreshIntervalMinutes = Self.normalizedBackgroundRefreshInterval(
             userDefaults.integer(forKey: Self.backgroundRefreshIntervalMinutesKey)
         )
+        quotaPrimerEnabled = userDefaults.bool(forKey: Self.quotaPrimerEnabledKey)
+        quotaPrimerIntervalMinutes = Self.normalizedQuotaPrimerInterval(
+            userDefaults.integer(forKey: Self.quotaPrimerIntervalMinutesKey)
+        )
 
         if startAutomatically {
             registryStore.startWatching { [weak self] in
@@ -74,12 +87,14 @@ final class AppState: ObservableObject {
             }
 
             rescheduleBackgroundRefresh()
+            rescheduleQuotaPrimer()
         }
     }
 
     deinit {
         reloadTask?.cancel()
         backgroundRefreshTask?.cancel()
+        quotaPrimerTask?.cancel()
     }
 
     var activeAccount: AccountSnapshot? {
@@ -276,6 +291,61 @@ final class AppState: ObservableObject {
         setBackgroundRefresh(enabled: backgroundRefreshEnabled, intervalMinutes: minutes)
     }
 
+    func setQuotaPrimer(enabled: Bool, intervalMinutes: Int? = nil) {
+        quotaPrimerEnabled = enabled
+        if let intervalMinutes {
+            quotaPrimerIntervalMinutes = Self.normalizedQuotaPrimerInterval(intervalMinutes)
+        }
+
+        userDefaults.set(quotaPrimerEnabled, forKey: Self.quotaPrimerEnabledKey)
+        userDefaults.set(quotaPrimerIntervalMinutes, forKey: Self.quotaPrimerIntervalMinutesKey)
+        rescheduleQuotaPrimer()
+    }
+
+    func setQuotaPrimerInterval(minutes: Int) {
+        setQuotaPrimer(enabled: quotaPrimerEnabled, intervalMinutes: minutes)
+    }
+
+    func runQuotaPrimerNow(now: Date = .now) async {
+        guard quotaPrimerEnabled,
+              !isPrimingQuota,
+              !isRefreshing,
+              !isSwitching else {
+            return
+        }
+
+        let eligibleAccounts = QuotaPrimerPlanner.eligibleAccounts(
+            from: accounts,
+            now: now,
+            recentAttempts: quotaPrimerAttempts
+        )
+        guard !eligibleAccounts.isEmpty else {
+            return
+        }
+
+        isPrimingQuota = true
+        defer { isPrimingQuota = false }
+
+        let restoreQuery = activeAccount?.email
+        var didPrimeAnyAccount = false
+
+        for account in eligibleAccounts {
+            quotaPrimerAttempts[account.accountKey] = now
+
+            do {
+                try await authRunner.primeUsage(accountQuery: account.email, restoreQuery: restoreQuery)
+                didPrimeAnyAccount = true
+            } catch {
+                lastErrorMessage = error.localizedDescription
+                notifications.notify(title: "Quota primer failed", body: error.localizedDescription)
+            }
+        }
+
+        if didPrimeAnyAccount {
+            await refreshAll(showNotifications: false)
+        }
+    }
+
     func openSettings() {
         if let settingsOpener {
             settingsOpener()
@@ -329,6 +399,24 @@ final class AppState: ObservableObject {
                 try? await Task.sleep(for: .seconds(backgroundRefreshIntervalMinutes * 60))
                 guard !Task.isCancelled else { return }
                 await runBackgroundRefreshTick()
+            }
+        }
+    }
+
+    private func rescheduleQuotaPrimer() {
+        quotaPrimerTask?.cancel()
+        quotaPrimerTask = nil
+
+        guard schedulesBackgroundRefresh, quotaPrimerEnabled else {
+            return
+        }
+
+        quotaPrimerTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                try? await Task.sleep(for: .seconds(quotaPrimerIntervalMinutes * 60))
+                guard !Task.isCancelled else { return }
+                await runQuotaPrimerNow()
             }
         }
     }
@@ -399,6 +487,14 @@ final class AppState: ObservableObject {
     private static func normalizedBackgroundRefreshInterval(_ value: Int) -> Int {
         guard backgroundRefreshIntervalOptions.contains(value) else {
             return defaultBackgroundRefreshIntervalMinutes
+        }
+
+        return value
+    }
+
+    private static func normalizedQuotaPrimerInterval(_ value: Int) -> Int {
+        guard quotaPrimerIntervalOptions.contains(value) else {
+            return defaultQuotaPrimerIntervalMinutes
         }
 
         return value

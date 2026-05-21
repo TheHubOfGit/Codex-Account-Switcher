@@ -60,6 +60,41 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: Binding(
+                    get: { appState.quotaPrimerEnabled },
+                    set: { appState.setQuotaPrimer(enabled: $0) }
+                )) {
+                    Text("Enable Scheduled Quota Primer")
+                }
+
+                Picker(
+                    "Check every",
+                    selection: Binding(
+                        get: { appState.quotaPrimerIntervalMinutes },
+                        set: { appState.setQuotaPrimerInterval(minutes: $0) }
+                    )
+                ) {
+                    ForEach(AppState.quotaPrimerIntervalOptions, id: \.self) { minutes in
+                        Text(quotaPrimerIntervalLabel(minutes)).tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!appState.quotaPrimerEnabled)
+
+                HStack(spacing: 12) {
+                    Button(appState.isPrimingQuota ? "Priming…" : "Prime Eligible Now") {
+                        Task { await appState.runQuotaPrimerNow() }
+                    }
+                    .disabled(!appState.quotaPrimerEnabled || appState.isPrimingQuota || appState.isRefreshing || appState.isSwitching)
+                }
+
+                Text("When a tracked reset time has passed or quota data is missing, this switches to that account, sends one minimal Codex CLI prompt, refreshes usage, then restores the previous account. Each primer consumes real Codex usage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             VStack(alignment: .leading, spacing: 10) {
                 Stepper(value: $fiveHourThreshold, in: 1...100) {
                     Text("5h threshold: \(fiveHourThreshold)% remaining")
@@ -117,5 +152,14 @@ struct SettingsView: View {
                 weeklyThreshold = currentWeekly
             }
         }
+    }
+
+    private func quotaPrimerIntervalLabel(_ minutes: Int) -> String {
+        if minutes < 60 {
+            return "\(minutes) minutes"
+        }
+
+        let hours = minutes / 60
+        return hours == 1 ? "1 hour" : "\(hours) hours"
     }
 }

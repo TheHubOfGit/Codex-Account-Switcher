@@ -89,7 +89,12 @@ struct AppStateSwitchTests {
 }
 
 actor RecordingAuthRunner: CodexAuthRunning {
-    func refreshUsage() async throws {}
+    private(set) var refreshUsageCount = 0
+    private(set) var primeRequests: [RecordedPrimeRequest] = []
+
+    func refreshUsage() async throws {
+        refreshUsageCount += 1
+    }
 
     func status() async throws -> AuthStatus {
         AuthStatus(
@@ -103,10 +108,19 @@ actor RecordingAuthRunner: CodexAuthRunning {
     }
 
     func switchAccount(query: String) async throws {}
+    func primeUsage(accountQuery: String, restoreQuery: String?) async throws {
+        primeRequests.append(.init(accountQuery: accountQuery, restoreQuery: restoreQuery))
+    }
+
     func setAutoSwitch(enabled: Bool) async throws {}
     func setThresholds(fiveHour: Int, weekly: Int) async throws {}
     func setUsageAPI(enabled: Bool) async throws {}
     func executableExists() async -> Bool { true }
+}
+
+struct RecordedPrimeRequest: Equatable {
+    let accountQuery: String
+    let restoreQuery: String?
 }
 
 final class SnapshotRegistryStore: RegistryStoring {
