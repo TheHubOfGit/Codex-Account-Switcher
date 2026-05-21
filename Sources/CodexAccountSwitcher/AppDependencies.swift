@@ -4,7 +4,7 @@ protocol CodexAuthRunning: Sendable {
     func refreshUsage() async throws
     func status() async throws -> AuthStatus
     func switchAccount(query: String) async throws
-    func primeUsage(accountQuery: String, restoreQuery: String?) async throws
+    func primeUsage(accountKey: String, accountQuery: String) async throws
     func setAutoSwitch(enabled: Bool) async throws
     func setThresholds(fiveHour: Int, weekly: Int) async throws
     func setUsageAPI(enabled: Bool) async throws

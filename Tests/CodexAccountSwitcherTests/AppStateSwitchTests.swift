@@ -108,8 +108,8 @@ actor RecordingAuthRunner: CodexAuthRunning {
     }
 
     func switchAccount(query: String) async throws {}
-    func primeUsage(accountQuery: String, restoreQuery: String?) async throws {
-        primeRequests.append(.init(accountQuery: accountQuery, restoreQuery: restoreQuery))
+    func primeUsage(accountKey: String, accountQuery: String) async throws {
+        primeRequests.append(.init(accountKey: accountKey, accountQuery: accountQuery))
     }
 
     func setAutoSwitch(enabled: Bool) async throws {}
@@ -119,8 +119,8 @@ actor RecordingAuthRunner: CodexAuthRunning {
 }
 
 struct RecordedPrimeRequest: Equatable {
+    let accountKey: String
     let accountQuery: String
-    let restoreQuery: String?
 }
 
 final class SnapshotRegistryStore: RegistryStoring {

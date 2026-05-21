@@ -106,9 +106,34 @@ struct QuotaPrimerTests {
 
         let requests = await authRunner.primeRequests
         #expect(requests == [
-            .init(accountQuery: "expired@example.com", restoreQuery: "active@example.com")
+            .init(accountKey: "expired", accountQuery: "expired@example.com")
         ])
         #expect(await authRunner.refreshUsageCount == 2)
+    }
+
+    @Test
+    func primerWorkspaceCopiesStoredAccountAuthIntoIsolatedCodexHome() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexAccountSwitcherTests-\(UUID().uuidString)", isDirectory: true)
+        let accountsDirectory = root.appendingPathComponent("accounts", isDirectory: true)
+        let tempRoot = root.appendingPathComponent("primer", isDirectory: true)
+        try FileManager.default.createDirectory(at: accountsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let storedAuth = accountsDirectory.appendingPathComponent("acct-1.auth.json")
+        try Data(#"{"token":"stored"}"#.utf8).write(to: storedAuth)
+
+        let workspace = try CodexPrimerWorkspace.make(
+            accountKey: "acct-1",
+            accountsDirectory: accountsDirectory,
+            temporaryDirectory: tempRoot,
+            fileManager: .default
+        )
+
+        let isolatedAuth = workspace.codexHome.appendingPathComponent("auth.json")
+        #expect(FileManager.default.fileExists(atPath: isolatedAuth.path))
+        #expect(try String(contentsOf: isolatedAuth, encoding: .utf8) == #"{"token":"stored"}"#)
+        #expect(workspace.environmentOverrides["CODEX_HOME"] == workspace.codexHome.path)
     }
 }
 

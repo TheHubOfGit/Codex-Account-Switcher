@@ -89,7 +89,7 @@ struct SettingsView: View {
                     .disabled(!appState.quotaPrimerEnabled || appState.isPrimingQuota || appState.isRefreshing || appState.isSwitching)
                 }
 
-                Text("When a tracked reset time has passed or quota data is missing, this switches to that account, sends one minimal Codex CLI prompt, refreshes usage, then restores the previous account. Each primer consumes real Codex usage.")
+                Text("When a tracked reset time has passed or quota data is missing, this uses that account's stored auth in an isolated Codex CLI home, sends one minimal prompt, then refreshes usage. Each primer consumes real Codex usage.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

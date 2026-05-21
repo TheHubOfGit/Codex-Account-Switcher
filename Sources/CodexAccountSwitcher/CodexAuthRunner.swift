@@ -4,6 +4,7 @@ enum CodexAuthError: LocalizedError, Equatable {
     case executableNotFound(name: String)
     case commandFailed(command: String, code: Int32, stderr: String)
     case invalidThresholds
+    case missingAccountAuth(accountKey: String)
 
     var errorDescription: String? {
         switch self {
@@ -17,6 +18,8 @@ enum CodexAuthError: LocalizedError, Equatable {
             return "\(command) failed with exit code \(code): \(detail)"
         case .invalidThresholds:
             return "Thresholds must be between 1 and 100."
+        case .missingAccountAuth(let accountKey):
+            return "No stored Codex auth file was found for account \(accountKey)."
         }
     }
 }
@@ -24,10 +27,19 @@ enum CodexAuthError: LocalizedError, Equatable {
 actor CodexAuthRunner: CodexAuthRunning {
     private let fileManager: FileManager
     private let environment: [String: String]
+    private let accountsDirectory: URL
+    private let temporaryDirectory: URL
 
-    init(fileManager: FileManager = .default, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        accountsDirectory: URL = CodexAuthRunner.defaultAccountsDirectory,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) {
         self.fileManager = fileManager
         self.environment = environment
+        self.accountsDirectory = accountsDirectory
+        self.temporaryDirectory = temporaryDirectory
     }
 
     func refreshUsage() async throws {
@@ -43,11 +55,19 @@ actor CodexAuthRunner: CodexAuthRunning {
         _ = try run(arguments: ["switch", query])
     }
 
-    func primeUsage(accountQuery: String, restoreQuery: String?) async throws {
-        try await switchAccount(query: accountQuery)
+    func primeUsage(accountKey: String, accountQuery: String) async throws {
+        let workspace = try CodexPrimerWorkspace.make(
+            accountKey: accountKey,
+            accountsDirectory: accountsDirectory,
+            temporaryDirectory: temporaryDirectory,
+            fileManager: fileManager
+        )
+        defer {
+            try? fileManager.removeItem(at: workspace.codexHome)
+        }
 
-        do {
-            _ = try runCodex(arguments: [
+        _ = try runCodex(
+            arguments: [
                 "exec",
                 "--ephemeral",
                 "--skip-git-repo-check",
@@ -57,13 +77,9 @@ actor CodexAuthRunner: CodexAuthRunning {
                 "--ask-for-approval",
                 "never",
                 "Reply exactly: hi"
-            ])
-        } catch {
-            try? await restoreAccountIfNeeded(accountQuery: accountQuery, restoreQuery: restoreQuery)
-            throw error
-        }
-
-        try await restoreAccountIfNeeded(accountQuery: accountQuery, restoreQuery: restoreQuery)
+            ],
+            environmentOverrides: workspace.environmentOverrides
+        )
     }
 
     func setAutoSwitch(enabled: Bool) async throws {
@@ -90,16 +106,20 @@ actor CodexAuthRunner: CodexAuthRunning {
         try run(executableName: "codex-auth", arguments: arguments)
     }
 
-    private func runCodex(arguments: [String]) throws -> String {
-        try run(executableName: "codex", arguments: arguments)
+    private func runCodex(arguments: [String], environmentOverrides: [String: String] = [:]) throws -> String {
+        try run(executableName: "codex", arguments: arguments, environmentOverrides: environmentOverrides)
     }
 
-    private func run(executableName: String, arguments: [String]) throws -> String {
+    private func run(
+        executableName: String,
+        arguments: [String],
+        environmentOverrides: [String: String] = [:]
+    ) throws -> String {
         let executable = try executableURL(named: executableName)
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
-        process.environment = environment
+        process.environment = environment.merging(environmentOverrides) { _, new in new }
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -125,14 +145,6 @@ actor CodexAuthRunner: CodexAuthRunning {
         return output
     }
 
-    private func restoreAccountIfNeeded(accountQuery: String, restoreQuery: String?) async throws {
-        guard let restoreQuery, restoreQuery != accountQuery else {
-            return
-        }
-
-        try await switchAccount(query: restoreQuery)
-    }
-
     private func executableURL(named executableName: String) throws -> URL {
         let directCandidates = [
             "/opt/homebrew/bin/\(executableName)",
@@ -152,5 +164,11 @@ actor CodexAuthRunner: CodexAuthRunning {
         }
 
         throw CodexAuthError.executableNotFound(name: executableName)
+    }
+
+    static var defaultAccountsDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("accounts", isDirectory: true)
     }
 }

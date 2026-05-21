@@ -326,14 +326,13 @@ final class AppState: ObservableObject {
         isPrimingQuota = true
         defer { isPrimingQuota = false }
 
-        let restoreQuery = activeAccount?.email
         var didPrimeAnyAccount = false
 
         for account in eligibleAccounts {
             quotaPrimerAttempts[account.accountKey] = now
 
             do {
-                try await authRunner.primeUsage(accountQuery: account.email, restoreQuery: restoreQuery)
+                try await authRunner.primeUsage(accountKey: account.accountKey, accountQuery: account.email)
                 didPrimeAnyAccount = true
             } catch {
                 lastErrorMessage = error.localizedDescription
