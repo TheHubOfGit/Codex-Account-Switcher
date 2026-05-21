@@ -109,6 +109,35 @@ struct QuotaPrimerTests {
             .init(accountKey: "expired", accountQuery: "expired@example.com")
         ])
         #expect(await authRunner.refreshUsageCount == 2)
+        #expect(appState.lastQuotaPrimerStatusMessage == "Primed 1 account and refreshed quota.")
+    }
+
+    @Test
+    func manualPrimerReportsWhenNoAccountsAreEligible() async {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let authRunner = RecordingAuthRunner()
+        let appState = AppState(
+            authRunner: authRunner,
+            registryStore: SnapshotRegistryStore(
+                snapshot: makePrimerRegistrySnapshot(
+                    activeAccountKey: "active",
+                    accounts: [
+                        makePrimerRegistryAccount(accountKey: "active", email: "active@example.com", weeklyResetAt: now.addingTimeInterval(86_400))
+                    ]
+                )
+            ),
+            codexController: RecordingCodexController(),
+            notifications: RecordingNotifications(),
+            startAutomatically: false,
+            userDefaults: makePrimerDefaults()
+        )
+
+        await appState.refreshAll(showNotifications: false)
+        appState.setQuotaPrimer(enabled: true)
+        await appState.runQuotaPrimerNow(now: now)
+
+        #expect(await authRunner.primeRequests.isEmpty)
+        #expect(appState.lastQuotaPrimerStatusMessage == "No eligible accounts to prime.")
     }
 
     @Test

@@ -34,6 +34,7 @@ final class AppState: ObservableObject {
     @Published private(set) var quotaPrimerEnabled: Bool
     @Published private(set) var quotaPrimerIntervalMinutes: Int
     @Published private(set) var isPrimingQuota = false
+    @Published private(set) var lastQuotaPrimerStatusMessage: String?
 
     private let authRunner: any CodexAuthRunning
     private let registryStore: any RegistryStoring
@@ -320,13 +321,16 @@ final class AppState: ObservableObject {
             recentAttempts: quotaPrimerAttempts
         )
         guard !eligibleAccounts.isEmpty else {
+            lastQuotaPrimerStatusMessage = "No eligible accounts to prime."
             return
         }
 
+        lastQuotaPrimerStatusMessage = "Priming \(Self.accountCountLabel(eligibleAccounts.count))..."
         isPrimingQuota = true
         defer { isPrimingQuota = false }
 
         var didPrimeAnyAccount = false
+        var primedCount = 0
 
         for account in eligibleAccounts {
             quotaPrimerAttempts[account.accountKey] = now
@@ -334,14 +338,19 @@ final class AppState: ObservableObject {
             do {
                 try await authRunner.primeUsage(accountKey: account.accountKey, accountQuery: account.email)
                 didPrimeAnyAccount = true
+                primedCount += 1
             } catch {
                 lastErrorMessage = error.localizedDescription
+                lastQuotaPrimerStatusMessage = "Quota primer failed for \(account.primaryLabel)."
                 notifications.notify(title: "Quota primer failed", body: error.localizedDescription)
             }
         }
 
         if didPrimeAnyAccount {
             await refreshAll(showNotifications: false)
+            lastQuotaPrimerStatusMessage = "Primed \(Self.accountCountLabel(primedCount)) and refreshed quota."
+        } else if lastQuotaPrimerStatusMessage == nil {
+            lastQuotaPrimerStatusMessage = "No accounts were primed."
         }
     }
 
@@ -497,6 +506,10 @@ final class AppState: ObservableObject {
         }
 
         return value
+    }
+
+    private static func accountCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 account" : "\(count) accounts"
     }
 
     private func evaluateAutoMonitor() {
