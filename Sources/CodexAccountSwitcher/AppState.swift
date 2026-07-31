@@ -7,6 +7,12 @@ final class AppState: ObservableObject {
     private static let backgroundRefreshEnabledKey = "backgroundRefreshEnabled"
     private static let backgroundRefreshIntervalMinutesKey = "backgroundRefreshIntervalMinutes"
     private static let defaultBackgroundRefreshIntervalMinutes = 10
+    private static let lastSuccessfulRefreshAtKey = "lastSuccessfulRefreshAt"
+    private static let accountUsageFreshnessKey = "accountUsageFreshness.v1"
+    private static let accountResetCreditsKey = "accountResetCredits.v1"
+    private static let askBeforeSwitchingKey = "askBeforeSwitchingEnabled"
+    private static let monitorFiveHourThresholdKey = "monitorFiveHourThreshold"
+    private static let monitorWeeklyThresholdKey = "monitorWeeklyThreshold"
     private static let quotaPrimerEnabledKey = "quotaPrimerEnabled"
     private static let quotaPrimerIntervalMinutesKey = "quotaPrimerIntervalMinutes"
     private static let defaultQuotaPrimerIntervalMinutes = 30
@@ -25,8 +31,10 @@ final class AppState: ObservableObject {
     )
     @Published private(set) var setupIssue: SetupIssue?
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var refreshWarningMessage: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isSwitching = false
+    @Published private(set) var isRestarting = false
     @Published private(set) var isSavingSettings = false
     @Published private(set) var weeklyPaceDemoEnabled: Bool
     @Published private(set) var backgroundRefreshEnabled: Bool
@@ -35,6 +43,13 @@ final class AppState: ObservableObject {
     @Published private(set) var quotaPrimerIntervalMinutes: Int
     @Published private(set) var isPrimingQuota = false
     @Published private(set) var lastQuotaPrimerStatusMessage: String?
+    @Published private(set) var freshnessNow = Date.now
+    @Published private(set) var lastSuccessfulRefreshAt: Date?
+    @Published private(set) var askBeforeSwitchingEnabled: Bool
+    @Published private(set) var monitorFiveHourThreshold: Int
+    @Published private(set) var monitorWeeklyThreshold: Int
+    @Published private(set) var codexAuthVersionLabel: String?
+    @Published private(set) var isCodexAuthSupported = true
 
     private let authRunner: any CodexAuthRunning
     private let registryStore: any RegistryStoring
@@ -48,7 +63,13 @@ final class AppState: ObservableObject {
     private var reloadTask: Task<Void, Never>?
     private var backgroundRefreshTask: Task<Void, Never>?
     private var quotaPrimerTask: Task<Void, Never>?
+    private var freshnessTask: Task<Void, Never>?
     private var pendingAutoMonitorPromptTargetKey: String?
+    private var pendingAutoMonitorPromptExpiresAt: Date?
+    private var lastRefreshAttemptAt: Date?
+    private var usageCheckedAtByAccountKey: [String: Date]
+    private var resetCreditsByAccountKey: [String: RateLimitResetCreditsSnapshot]
+    private var lastRefreshVerifiedAccountKeys: Set<String> = []
     private var settingsOpener: (() -> Void)?
     private var quotaPrimerAttempts: [String: Date] = [:]
 
@@ -75,6 +96,20 @@ final class AppState: ObservableObject {
         quotaPrimerIntervalMinutes = Self.normalizedQuotaPrimerInterval(
             userDefaults.integer(forKey: Self.quotaPrimerIntervalMinutesKey)
         )
+        lastSuccessfulRefreshAt = userDefaults.object(forKey: Self.lastSuccessfulRefreshAtKey) as? Date
+        usageCheckedAtByAccountKey = Self.loadUsageFreshness(from: userDefaults)
+        resetCreditsByAccountKey = Self.loadResetCredits(from: userDefaults)
+        refreshWarningMessage = nil
+        askBeforeSwitchingEnabled = userDefaults.bool(forKey: Self.askBeforeSwitchingKey)
+        monitorFiveHourThreshold = Self.normalizedThreshold(
+            userDefaults.integer(forKey: Self.monitorFiveHourThresholdKey),
+            fallback: 10
+        )
+        monitorWeeklyThreshold = Self.normalizedThreshold(
+            userDefaults.integer(forKey: Self.monitorWeeklyThresholdKey),
+            fallback: 5
+        )
+        codexAuthVersionLabel = nil
 
         if startAutomatically {
             registryStore.startWatching { [weak self] in
@@ -88,7 +123,7 @@ final class AppState: ObservableObject {
             }
 
             rescheduleBackgroundRefresh()
-            rescheduleQuotaPrimer()
+            startFreshnessClock()
         }
     }
 
@@ -96,6 +131,7 @@ final class AppState: ObservableObject {
         reloadTask?.cancel()
         backgroundRefreshTask?.cancel()
         quotaPrimerTask?.cancel()
+        freshnessTask?.cancel()
     }
 
     var activeAccount: AccountSnapshot? {
@@ -113,12 +149,17 @@ final class AppState: ObservableObject {
     var fleetQuotaSummary: FleetQuotaSummary {
         FleetQuotaSummary.make(
             from: accounts,
+            now: freshnessNow,
             fiveHourThreshold: quotaThresholds.fiveHour,
             weeklyThreshold: quotaThresholds.weekly
         )
     }
 
     var autoMonitorEnabled: Bool {
+        askBeforeSwitchingEnabled
+    }
+
+    var externalAutoSwitchEnabled: Bool {
         authStatus.autoSwitchEnabled
     }
 
@@ -126,11 +167,18 @@ final class AppState: ObservableObject {
         authStatus.usageMode.displayName
     }
 
+    var headerMessage: String? {
+        lastErrorMessage ?? refreshWarningMessage
+    }
+
     func requestNotificationAuthorization() {
         notifications.requestAuthorization()
     }
 
     func refreshAll(showNotifications: Bool = true) async {
+        guard !isRefreshing else { return }
+
+        lastRefreshAttemptAt = .now
         isRefreshing = true
         defer { isRefreshing = false }
 
@@ -141,17 +189,92 @@ final class AppState: ObservableObject {
                 return
             }
 
-            try await authRunner.refreshUsage()
+            let versionOutput = try await authRunner.version()
+            codexAuthVersionLabel = versionOutput
+            let parsedVersion = CodexAuthVersion(output: versionOutput)
+            isCodexAuthSupported = parsedVersion.map { $0 >= .minimumSupported } ?? false
+
+            if !isCodexAuthSupported {
+                let status = try await authRunner.status()
+                let snapshot = try registryStore.loadSnapshot()
+                apply(snapshot: snapshot, status: status)
+                setupIssue = nil
+                lastErrorMessage = "Update codex-auth to 0.2.10 or newer before refreshing or switching accounts."
+                return
+            }
+
+            let refreshResult = try await authRunner.refreshUsage()
             let status = try await authRunner.status()
             let snapshot = try registryStore.loadSnapshot()
+            var resetCreditFailures: [String] = []
+            for registryAccount in snapshot.accounts {
+                do {
+                    let identity = try primerIdentity(for: registryAccount)
+                    let fetched = try await authRunner
+                        .readRateLimitResetCredits(account: identity)
+                    resetCreditsByAccountKey[registryAccount.accountKey] = mergedResetCredits(
+                        fetched,
+                        cached: resetCreditsByAccountKey[registryAccount.accountKey]
+                    )
+                } catch {
+                    let alias = registryAccount.alias.trimmingCharacters(in: .whitespacesAndNewlines)
+                    resetCreditFailures.append(alias.isEmpty ? registryAccount.email : alias)
+                }
+            }
+
+            let checkedAt = Date.now
+            lastSuccessfulRefreshAt = checkedAt
+            userDefaults.set(checkedAt, forKey: Self.lastSuccessfulRefreshAtKey)
+
+            let successfulEmails = refreshResult.successfulAccountEmails
+            let verifiedKeys = Set(snapshot.accounts.compactMap { account in
+                successfulEmails.contains(account.email.lowercased()) ? account.accountKey : nil
+            })
+            lastRefreshVerifiedAccountKeys = verifiedKeys
+            for accountKey in verifiedKeys {
+                usageCheckedAtByAccountKey[accountKey] = checkedAt
+            }
+            let currentKeys = Set(snapshot.accounts.map(\.accountKey))
+            usageCheckedAtByAccountKey = usageCheckedAtByAccountKey.filter {
+                currentKeys.contains($0.key)
+            }
+            resetCreditsByAccountKey = resetCreditsByAccountKey.filter {
+                currentKeys.contains($0.key)
+            }
+            persistUsageFreshness()
+            persistResetCredits()
 
             apply(snapshot: snapshot, status: status)
             setupIssue = nil
             lastErrorMessage = nil
+            let cachedCount = max(0, snapshot.accounts.count - verifiedKeys.count)
+            var warnings: [String] = []
+            if cachedCount > 0 {
+                warnings.append(
+                    "\(verifiedKeys.count) refreshed, \(cachedCount) cached. Cached quota remains for accounts that could not be verified."
+                )
+            }
+            if !resetCreditFailures.isEmpty {
+                warnings.append(
+                    "Reset availability remains cached for \(resetCreditFailures.joined(separator: ", "))."
+                )
+            }
+            refreshWarningMessage = warnings.isEmpty ? nil : warnings.joined(separator: " ")
+            if !warnings.isEmpty, showNotifications {
+                notifications.notify(
+                    title: "Usage refresh partially failed",
+                    body: refreshWarningMessage ?? "Some quota remains cached."
+                )
+            }
         } catch let issue as SetupIssue {
             setupIssue = issue
-            accounts = []
+            if accounts.isEmpty {
+                accounts = []
+            } else {
+                lastErrorMessage = issue.localizedDescription
+            }
         } catch {
+            lastRefreshVerifiedAccountKeys = []
             lastErrorMessage = error.localizedDescription
             if showNotifications {
                 notifications.notify(title: "Quota refresh failed", body: error.localizedDescription)
@@ -161,6 +284,10 @@ final class AppState: ObservableObject {
     }
 
     func restartCodex() async {
+        guard !isRestarting, !isSwitching else { return }
+        isRestarting = true
+        defer { isRestarting = false }
+
         do {
             try await codexController.relaunchCodex()
             lastErrorMessage = nil
@@ -172,7 +299,12 @@ final class AppState: ObservableObject {
     }
 
     func switchToAccount(_ account: AccountSnapshot, notifyOnSuccess: Bool = true) async {
-        guard !isSwitching else { return }
+        guard isCodexAuthSupported else {
+            lastErrorMessage = "Update codex-auth to 0.2.10 or newer before switching accounts."
+            return
+        }
+        guard !isSwitching, !isRestarting else { return }
+        guard account.accountKey != activeAccount?.accountKey else { return }
 
         isSwitching = true
         defer { isSwitching = false }
@@ -181,17 +313,28 @@ final class AppState: ObservableObject {
             try await authRunner.switchAccount(query: account.email)
             suppressNextExternalSwitchNotification = true
             let snapshot = try registryStore.loadSnapshot()
-            let status = try await authRunner.status()
-            apply(snapshot: snapshot, status: status)
+            guard snapshot.activeAccountKey == account.accountKey else {
+                throw CodexAuthError.switchVerificationFailed
+            }
 
+            let status = (try? await authRunner.status()) ?? authStatus
+            apply(snapshot: snapshot, status: status)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            notifications.notify(title: "Account switch failed", body: error.localizedDescription)
+            return
+        }
+
+        do {
             try await codexController.relaunchCodex()
             lastErrorMessage = nil
             if notifyOnSuccess {
                 notifications.notify(title: "Account switched", body: "Now using \(account.primaryLabel).")
             }
         } catch {
-            lastErrorMessage = error.localizedDescription
-            notifications.notify(title: "Account switch failed", body: error.localizedDescription)
+            let message = "Switched to \(account.primaryLabel), but Codex could not restart: \(error.localizedDescription)"
+            lastErrorMessage = message
+            notifications.notify(title: "Account switched; restart needed", body: message)
         }
     }
 
@@ -248,27 +391,52 @@ final class AppState: ObservableObject {
         isSavingSettings = true
         defer { isSavingSettings = false }
 
-        do {
-            try await authRunner.setAutoSwitch(enabled: enabled)
-            try await refreshStatusOnly()
-            lastErrorMessage = nil
-        } catch {
-            lastErrorMessage = error.localizedDescription
-            notifications.notify(title: "Auto monitor update failed", body: error.localizedDescription)
+        if enabled && externalAutoSwitchEnabled {
+            lastErrorMessage = "Turn off codex-auth automatic switching before enabling Ask Before Switching."
+            return
         }
+
+        askBeforeSwitchingEnabled = enabled
+        userDefaults.set(enabled, forKey: Self.askBeforeSwitchingKey)
+        if enabled {
+            requestNotificationAuthorization()
+            if !backgroundRefreshEnabled {
+                setBackgroundRefresh(enabled: true, intervalMinutes: 10)
+            }
+        } else {
+            pendingAutoMonitorPromptTargetKey = nil
+            pendingAutoMonitorPromptExpiresAt = nil
+        }
+        lastErrorMessage = nil
     }
 
     func saveThresholds(fiveHour: Int, weekly: Int) async {
         isSavingSettings = true
         defer { isSavingSettings = false }
 
+        guard (1...100).contains(fiveHour), (1...100).contains(weekly) else {
+            lastErrorMessage = CodexAuthError.invalidThresholds.localizedDescription
+            return
+        }
+
+        monitorFiveHourThreshold = fiveHour
+        monitorWeeklyThreshold = weekly
+        userDefaults.set(fiveHour, forKey: Self.monitorFiveHourThresholdKey)
+        userDefaults.set(weekly, forKey: Self.monitorWeeklyThresholdKey)
+        lastErrorMessage = nil
+        evaluateAutoMonitor()
+    }
+
+    func disableExternalAutoSwitch() async {
+        isSavingSettings = true
+        defer { isSavingSettings = false }
+
         do {
-            try await authRunner.setThresholds(fiveHour: fiveHour, weekly: weekly)
+            try await authRunner.setAutoSwitch(enabled: false)
             try await refreshStatusOnly()
             lastErrorMessage = nil
         } catch {
             lastErrorMessage = error.localizedDescription
-            notifications.notify(title: "Threshold update failed", body: error.localizedDescription)
         }
     }
 
@@ -293,14 +461,15 @@ final class AppState: ObservableObject {
     }
 
     func setQuotaPrimer(enabled: Bool, intervalMinutes: Int? = nil) {
-        quotaPrimerEnabled = enabled
+        quotaPrimerEnabled = false
         if let intervalMinutes {
             quotaPrimerIntervalMinutes = Self.normalizedQuotaPrimerInterval(intervalMinutes)
         }
 
-        userDefaults.set(quotaPrimerEnabled, forKey: Self.quotaPrimerEnabledKey)
+        userDefaults.set(false, forKey: Self.quotaPrimerEnabledKey)
         userDefaults.set(quotaPrimerIntervalMinutes, forKey: Self.quotaPrimerIntervalMinutesKey)
-        rescheduleQuotaPrimer()
+        quotaPrimerTask?.cancel()
+        quotaPrimerTask = nil
     }
 
     func setQuotaPrimerInterval(minutes: Int) {
@@ -308,61 +477,127 @@ final class AppState: ObservableObject {
     }
 
     func runQuotaPrimerNow(now: Date = .now) async {
-        await runQuotaPrimer(now: now, mode: .fullWindowOnly)
+        await runManualQuotaPrimerNow(now: now)
     }
 
     func runManualQuotaPrimerNow(now: Date = .now) async {
-        await runQuotaPrimer(now: now, mode: .allAccounts)
-    }
-
-    private func runQuotaPrimer(now: Date, mode: QuotaPrimerPlanner.Mode) async {
-        guard quotaPrimerEnabled,
-              !isPrimingQuota,
+        guard isCodexAuthSupported else {
+            lastQuotaPrimerStatusMessage = "Update codex-auth to 0.2.10 or newer before priming quota."
+            return
+        }
+        guard !isPrimingQuota,
               !isRefreshing,
-              !isSwitching else {
+              !isSwitching,
+              !isRestarting else {
             return
         }
 
-        let eligibleAccounts = QuotaPrimerPlanner.eligibleAccounts(
-            from: accounts,
-            now: now,
-            recentAttempts: quotaPrimerAttempts,
-            mode: mode
-        )
-        guard !eligibleAccounts.isEmpty else {
-            lastQuotaPrimerStatusMessage = mode == .allAccounts
-                ? "No accounts available to prime."
-                : "No eligible accounts to prime."
+        guard let account = activeAccount else {
+            lastQuotaPrimerStatusMessage = "No active account is available to prime."
             return
         }
 
-        lastQuotaPrimerStatusMessage = "Priming \(Self.accountCountLabel(eligibleAccounts.count))..."
+        if let lastAttempt = quotaPrimerAttempts[account.accountKey],
+           now.timeIntervalSince(lastAttempt) < QuotaPrimerPlanner.attemptCooldown {
+            lastQuotaPrimerStatusMessage = "This account was primed recently. Try again later."
+            return
+        }
+
+        quotaPrimerAttempts[account.accountKey] = now
+        lastQuotaPrimerStatusMessage = "Priming \(account.primaryLabel)..."
         isPrimingQuota = true
         defer { isPrimingQuota = false }
 
-        var didPrimeAnyAccount = false
-        var primedCount = 0
+        do {
+            let snapshot = try registryStore.loadSnapshot()
+            let identity = try primerIdentity(for: account, in: snapshot)
+            _ = try await authRunner.primeUsage(account: identity)
+            await refreshAll(showNotifications: false)
+            let verified = lastRefreshVerifiedAccountKeys.contains(account.accountKey)
+            lastQuotaPrimerStatusMessage = verified
+                ? "Sent a primer message from \(account.primaryLabel); quota verified."
+                : "Sent a primer message from \(account.primaryLabel); quota could not be verified."
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            lastQuotaPrimerStatusMessage = "Quota primer failed: \(error.localizedDescription)"
+            notifications.notify(title: "Quota primer failed", body: error.localizedDescription)
+        }
+    }
 
-        for account in eligibleAccounts {
-            quotaPrimerAttempts[account.accountKey] = now
+    func primeAllAccounts(now: Date = .now) async {
+        guard isCodexAuthSupported else {
+            lastQuotaPrimerStatusMessage = "Update codex-auth to 0.2.10 or newer before priming quota."
+            return
+        }
+        guard !isPrimingQuota,
+              !isRefreshing,
+              !isSwitching,
+              !isRestarting else {
+            return
+        }
+        guard let originalAccount = activeAccount, !accounts.isEmpty else {
+            lastQuotaPrimerStatusMessage = "No active account is available to prime."
+            return
+        }
 
+        let orderedAccounts = [originalAccount] + accounts.filter { $0.accountKey != originalAccount.accountKey }
+        isPrimingQuota = true
+        defer { isPrimingQuota = false }
+
+        let startingSnapshot: RegistrySnapshot
+        do {
+            startingSnapshot = try registryStore.loadSnapshot()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            lastQuotaPrimerStatusMessage = "Could not read account state: \(error.localizedDescription)"
+            return
+        }
+
+        var deliveredAccountKeys: Set<String> = []
+        var failures: [(label: String, reason: String)] = []
+
+        for (index, account) in orderedAccounts.enumerated() {
             do {
-                try await authRunner.primeUsage(accountKey: account.accountKey, accountQuery: account.email)
-                didPrimeAnyAccount = true
-                primedCount += 1
+                lastQuotaPrimerStatusMessage = "Sending \(index + 1) of \(orderedAccounts.count): \(account.primaryLabel)…"
+                let identity = try primerIdentity(for: account, in: startingSnapshot)
+                _ = try await authRunner.primeUsage(account: identity)
+                deliveredAccountKeys.insert(account.accountKey)
+                quotaPrimerAttempts[account.accountKey] = now
             } catch {
-                lastErrorMessage = error.localizedDescription
-                lastQuotaPrimerStatusMessage = "Quota primer failed for \(account.primaryLabel): \(error.localizedDescription)"
-                notifications.notify(title: "Quota primer failed", body: error.localizedDescription)
+                failures.append((account.primaryLabel, error.localizedDescription))
             }
         }
 
-        if didPrimeAnyAccount {
-            await refreshAll(showNotifications: false)
-            lastQuotaPrimerStatusMessage = "Primed \(Self.accountCountLabel(primedCount)) and refreshed quota."
-        } else if lastQuotaPrimerStatusMessage == nil {
-            lastQuotaPrimerStatusMessage = "No accounts were primed."
+        var safetyIssue: String?
+        do {
+            let endingSnapshot = try registryStore.loadSnapshot()
+            if endingSnapshot.activeAccountKey != startingSnapshot.activeAccountKey {
+                safetyIssue = "The active account changed unexpectedly during priming."
+            }
+        } catch {
+            safetyIssue = "The active account could not be verified after priming: \(error.localizedDescription)"
         }
+
+        lastQuotaPrimerStatusMessage = "Refreshing quota after primer messages…"
+        await refreshAll(showNotifications: false)
+
+        let currentAccountKeys = Set(orderedAccounts.map(\.accountKey))
+        let verifiedAccountCount = currentAccountKeys.intersection(lastRefreshVerifiedAccountKeys).count
+        var summary = "Sent \(deliveredAccountKeys.count)/\(orderedAccounts.count) primer messages; quota verified for \(verifiedAccountCount)/\(orderedAccounts.count)."
+        if !failures.isEmpty {
+            summary += " Failed: " + failures.map { "\($0.label) (\($0.reason))" }.joined(separator: ", ") + "."
+        }
+        if let safetyIssue {
+            summary += " \(safetyIssue)"
+            lastErrorMessage = safetyIssue
+        } else {
+            lastErrorMessage = nil
+        }
+        lastQuotaPrimerStatusMessage = summary
+        notifications.notify(
+            title: failures.isEmpty && safetyIssue == nil ? "All primer messages sent" : "Account priming finished",
+            body: summary
+        )
     }
 
     func openSettings() {
@@ -383,6 +618,15 @@ final class AppState: ObservableObject {
         NSApp.terminate(nil)
     }
 
+    func popoverDidOpen() {
+        freshnessNow = .now
+        let reference = lastRefreshAttemptAt ?? lastSuccessfulRefreshAt
+        let needsRefresh = reference.map { freshnessNow.timeIntervalSince($0) >= 5 * 60 } ?? true
+        guard needsRefresh, !isRefreshing, !isSwitching else { return }
+
+        Task { await refreshAll(showNotifications: false) }
+    }
+
     private func refreshStatusOnly() async throws {
         let status = try await authRunner.status()
         authStatus = status
@@ -399,8 +643,33 @@ final class AppState: ObservableObject {
     private func scheduleRegistryReload() {
         reloadTask?.cancel()
         reloadTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
             await reloadFromDisk(showNotifications: true)
+        }
+    }
+
+    private func startFreshnessClock() {
+        freshnessTask?.cancel()
+        freshnessTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                freshnessNow = .now
+                if let expiresAt = pendingAutoMonitorPromptExpiresAt,
+                   freshnessNow >= expiresAt {
+                    pendingAutoMonitorPromptTargetKey = nil
+                    pendingAutoMonitorPromptExpiresAt = nil
+                }
+                evaluateAutoMonitor()
+            }
         }
     }
 
@@ -455,7 +724,9 @@ final class AppState: ObservableObject {
             setupIssue = nil
         } catch let issue as SetupIssue {
             setupIssue = issue
-            accounts = []
+            if !accounts.isEmpty {
+                lastErrorMessage = issue.localizedDescription
+            }
         } catch {
             lastErrorMessage = error.localizedDescription
         }
@@ -463,7 +734,12 @@ final class AppState: ObservableObject {
 
     private func apply(snapshot: RegistrySnapshot, status: AuthStatus, notifyOnExternalSwitch: Bool = true) {
         let previousActive = lastObservedActiveAccountKey
-        let nextAccounts = snapshot.accountSnapshots()
+        freshnessNow = .now
+        let nextAccounts = snapshot.accountSnapshots(
+            now: freshnessNow,
+            usageCheckedAtByAccountKey: usageCheckedAtByAccountKey,
+            resetCreditsByAccountKey: resetCreditsByAccountKey
+        )
         let nextActive = nextAccounts.first(where: \.isActive)?.accountKey
 
         accounts = nextAccounts
@@ -498,9 +774,13 @@ final class AppState: ObservableObject {
 
     private var quotaThresholds: (fiveHour: Int, weekly: Int) {
         (
-            fiveHour: authStatus.threshold5hPercent ?? 0,
-            weekly: authStatus.thresholdWeeklyPercent ?? 0
+            fiveHour: monitorFiveHourThreshold,
+            weekly: monitorWeeklyThreshold
         )
+    }
+
+    private static func normalizedThreshold(_ value: Int, fallback: Int) -> Int {
+        (1...100).contains(value) ? value : fallback
     }
 
     private static func normalizedBackgroundRefreshInterval(_ value: Int) -> Int {
@@ -523,10 +803,104 @@ final class AppState: ObservableObject {
         count == 1 ? "1 account" : "\(count) accounts"
     }
 
+    private func primerIdentity(
+        for account: AccountSnapshot,
+        in snapshot: RegistrySnapshot
+    ) throws -> PrimerAccountIdentity {
+        guard let registryAccount = snapshot.accounts.first(where: {
+            $0.accountKey == account.accountKey
+        }), let rawAccountID = registryAccount.chatGPTAccountID else {
+            throw CodexAuthError.missingPrimerIdentity(accountKey: account.accountKey)
+        }
+        let chatGPTAccountID = rawAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !chatGPTAccountID.isEmpty else {
+            throw CodexAuthError.missingPrimerIdentity(accountKey: account.accountKey)
+        }
+        return PrimerAccountIdentity(
+            accountKey: account.accountKey,
+            email: account.email,
+            chatGPTAccountID: chatGPTAccountID
+        )
+    }
+
+    private func primerIdentity(for account: RegistryAccount) throws -> PrimerAccountIdentity {
+        guard let rawAccountID = account.chatGPTAccountID else {
+            throw CodexAuthError.missingPrimerIdentity(accountKey: account.accountKey)
+        }
+        let chatGPTAccountID = rawAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !chatGPTAccountID.isEmpty else {
+            throw CodexAuthError.missingPrimerIdentity(accountKey: account.accountKey)
+        }
+        return PrimerAccountIdentity(
+            accountKey: account.accountKey,
+            email: account.email,
+            chatGPTAccountID: chatGPTAccountID
+        )
+    }
+
+    private static func loadUsageFreshness(from defaults: UserDefaults) -> [String: Date] {
+        guard let data = defaults.data(forKey: accountUsageFreshnessKey),
+              let stored = try? JSONDecoder().decode([String: TimeInterval].self, from: data) else {
+            return [:]
+        }
+        return stored.mapValues(Date.init(timeIntervalSince1970:))
+    }
+
+    private func persistUsageFreshness() {
+        let stored = usageCheckedAtByAccountKey.mapValues(\.timeIntervalSince1970)
+        if let data = try? JSONEncoder().encode(stored) {
+            userDefaults.set(data, forKey: Self.accountUsageFreshnessKey)
+        }
+    }
+
+    private static func loadResetCredits(
+        from defaults: UserDefaults
+    ) -> [String: RateLimitResetCreditsSnapshot] {
+        guard let data = defaults.data(forKey: accountResetCreditsKey),
+              let stored = try? JSONDecoder().decode(
+                [String: RateLimitResetCreditsSnapshot].self,
+                from: data
+              ) else {
+            return [:]
+        }
+        return stored
+    }
+
+    private func persistResetCredits() {
+        if let data = try? JSONEncoder().encode(resetCreditsByAccountKey) {
+            userDefaults.set(data, forKey: Self.accountResetCreditsKey)
+        }
+    }
+
+    private func mergedResetCredits(
+        _ fetched: RateLimitResetCreditsSnapshot,
+        cached: RateLimitResetCreditsSnapshot?
+    ) -> RateLimitResetCreditsSnapshot {
+        guard fetched.availableCount > fetched.credits.count,
+              let cached,
+              cached.availableCount == fetched.availableCount,
+              cached.credits.count > fetched.credits.count else {
+            return fetched
+        }
+        let stillValid = cached.credits.filter {
+            guard let expiresAt = $0.expiresAt else { return true }
+            return expiresAt > Date.now.timeIntervalSince1970
+        }
+        guard stillValid.count > fetched.credits.count else { return fetched }
+        return RateLimitResetCreditsSnapshot(
+            availableCount: fetched.availableCount,
+            credits: stillValid,
+            checkedAt: fetched.checkedAt
+        )
+    }
+
     private func evaluateAutoMonitor() {
-        guard authStatus.autoSwitchEnabled,
+        guard askBeforeSwitchingEnabled,
+              !externalAutoSwitchEnabled,
               !isSwitching,
               let activeAccount,
+              !activeAccount.isUsageStale(at: freshnessNow),
+              !activeAccount.hasResetPending(at: freshnessNow),
               activeAccount.isExhausted(
                 fiveHourThreshold: quotaThresholds.fiveHour,
                 weeklyThreshold: quotaThresholds.weekly
@@ -538,10 +912,21 @@ final class AppState: ObservableObject {
         }
 
         pendingAutoMonitorPromptTargetKey = candidate.accountKey
+        pendingAutoMonitorPromptExpiresAt = freshnessNow.addingTimeInterval(10 * 60)
         notifications.promptForAutoSwitch(from: activeAccount, to: candidate) { [weak self] in
             guard let self else { return }
-            defer { pendingAutoMonitorPromptTargetKey = nil }
-            await switchToAccount(candidate, notifyOnSuccess: false)
+            defer {
+                pendingAutoMonitorPromptTargetKey = nil
+                pendingAutoMonitorPromptExpiresAt = nil
+            }
+            await refreshAll(showNotifications: false)
+            guard let refreshedCandidate = accounts.first(where: { $0.accountKey == candidate.accountKey }),
+                  !refreshedCandidate.isUsageStale,
+                  !refreshedCandidate.hasResetPending() else {
+                notifications.notify(title: "Switch cancelled", body: "Quota data changed or could not be verified.")
+                return
+            }
+            await switchToAccount(refreshedCandidate, notifyOnSuccess: false)
         }
     }
 }

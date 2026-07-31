@@ -53,13 +53,15 @@ enum QuotaPrimerPlanner {
     }
 
     private static func accountHasFullWindow(_ account: AccountSnapshot, now: Date) -> Bool {
-        guard let fiveHourRemaining = account.fiveHour.remainingPercent,
-              fiveHourRemaining >= 99,
+        guard let weeklyRemaining = account.weekly.remainingPercent,
+              weeklyRemaining >= 99,
               let weeklyResetAt = account.weekly.resetAt else {
             return false
         }
 
-        return weeklyResetAt.timeIntervalSince(now) > 6 * dayDuration
+        let hasAvailableShortWindow = account.fiveHour.remainingPercent.map { $0 >= 99 } ?? true
+        return hasAvailableShortWindow
+            && weeklyResetAt.timeIntervalSince(now) > 6 * dayDuration
     }
 
     private static func hasRecentAttempt(

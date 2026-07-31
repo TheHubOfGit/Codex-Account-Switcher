@@ -1,0 +1,227 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1440" height="1120" viewBox="0 0 1440 1120">
+  <defs>
+    <style>
+      text { font-family: Helvetica; }
+      .title { font-size: 34px; font-weight: 700; fill: #17191d; }
+      .subtitle { font-size: 17px; fill: #666b73; }
+      .card-title { font-size: 22px; font-weight: 700; fill: #1d2025; }
+      .card-copy { font-size: 15px; fill: #747983; }
+      .label { font-size: 12px; font-weight: 700; fill: #8a9099; letter-spacing: 1.1px; }
+      .value { font-size: 13px; font-weight: 700; fill: #656a73; }
+      .card { fill: #fff; stroke: #dfe2e7; stroke-width: 1; }
+      .menu-light { fill: #f0f0f1; }
+      .menu-dark { fill: #292a2d; }
+      .track { fill: none; stroke: currentColor; opacity: .18; }
+      .active { fill: none; stroke: currentColor; }
+      .combined { fill: none; stroke: currentColor; opacity: .62; }
+    </style>
+
+    <!-- All symbols use the native 24 × 18 pt menu-bar canvas.
+         Primary state: active 72%, combined 46%.
+         Low state: active 18%, combined 58%. -->
+
+    <symbol id="rings-a" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.2"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.2" stroke-linecap="round" pathLength="100" stroke-dasharray="72 100"/>
+        <circle cx="12" cy="9" r="4.2" class="track" stroke-width="1.45"/>
+        <circle cx="12" cy="9" r="4.2" class="combined" stroke-width="1.45" stroke-linecap="round" pathLength="100" stroke-dasharray="46 100"/>
+      </g>
+    </symbol>
+    <symbol id="rings-a-low" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.2"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.2" stroke-linecap="round" pathLength="100" stroke-dasharray="18 100"/>
+        <circle cx="12" cy="9" r="4.2" class="track" stroke-width="1.45"/>
+        <circle cx="12" cy="9" r="4.2" class="combined" stroke-width="1.45" stroke-linecap="round" pathLength="100" stroke-dasharray="58 100"/>
+      </g>
+    </symbol>
+
+    <symbol id="rings-b" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.2"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.2" stroke-linecap="round" pathLength="100" stroke-dasharray="72 100"/>
+      </g>
+      <g transform="rotate(90 12 9)">
+        <circle cx="12" cy="9" r="4.15" class="track" stroke-width="1.5"/>
+        <circle cx="12" cy="9" r="4.15" class="combined" stroke-width="1.5" stroke-linecap="round" pathLength="100" stroke-dasharray="46 100"/>
+      </g>
+    </symbol>
+    <symbol id="rings-b-low" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.2"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.2" stroke-linecap="round" pathLength="100" stroke-dasharray="18 100"/>
+      </g>
+      <g transform="rotate(90 12 9)">
+        <circle cx="12" cy="9" r="4.15" class="track" stroke-width="1.5"/>
+        <circle cx="12" cy="9" r="4.15" class="combined" stroke-width="1.5" stroke-linecap="round" pathLength="100" stroke-dasharray="58 100"/>
+      </g>
+    </symbol>
+
+    <symbol id="rings-c" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.4"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.4" stroke-linecap="butt" pathLength="100" stroke-dasharray="72 100"/>
+        <circle cx="12" cy="9" r="3.9" class="track" stroke-width="1.8" stroke-dasharray="7 3"/>
+        <circle cx="12" cy="9" r="3.9" class="combined" stroke-width="1.8" stroke-linecap="butt" pathLength="100" stroke-dasharray="46 100"/>
+      </g>
+    </symbol>
+    <symbol id="rings-c-low" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.4"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.4" stroke-linecap="butt" pathLength="100" stroke-dasharray="18 100"/>
+        <circle cx="12" cy="9" r="3.9" class="track" stroke-width="1.8" stroke-dasharray="7 3"/>
+        <circle cx="12" cy="9" r="3.9" class="combined" stroke-width="1.8" stroke-linecap="butt" pathLength="100" stroke-dasharray="58 100"/>
+      </g>
+    </symbol>
+
+    <symbol id="rings-d" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.25" stroke-dasharray="1.2 1.35" pathLength="100"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.25" stroke-linecap="round" pathLength="100" stroke-dasharray="72 100"/>
+        <circle cx="12" cy="9" r="4" class="track" stroke-width="1.55" stroke-dasharray="6 4" pathLength="100"/>
+        <circle cx="12" cy="9" r="4" class="combined" stroke-width="1.55" stroke-linecap="butt" pathLength="100" stroke-dasharray="46 100"/>
+      </g>
+    </symbol>
+    <symbol id="rings-d-low" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.25" stroke-dasharray="1.2 1.35" pathLength="100"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.25" stroke-linecap="round" pathLength="100" stroke-dasharray="18 100"/>
+        <circle cx="12" cy="9" r="4" class="track" stroke-width="1.55" stroke-dasharray="6 4" pathLength="100"/>
+        <circle cx="12" cy="9" r="4" class="combined" stroke-width="1.55" stroke-linecap="butt" pathLength="100" stroke-dasharray="58 100"/>
+      </g>
+    </symbol>
+
+    <symbol id="rings-e" viewBox="0 0 24 18">
+      <g transform="rotate(-135 12 9)">
+        <circle cx="12" cy="9" r="7" class="track" stroke-width="2.3" pathLength="100" stroke-dasharray="82 100"/>
+        <circle cx="12" cy="9" r="7" class="active" stroke-width="2.3" stroke-linecap="round" pathLength="100" stroke-dasharray="59 100"/>
+        <circle cx="12" cy="9" r="4" class="track" stroke-width="1.5" pathLength="100" stroke-dasharray="82 100"/>
+        <circle cx="12" cy="9" r="4" class="combined" stroke-width="1.5" stroke-linecap="round" pathLength="100" stroke-dasharray="38 100"/>
+      </g>
+    </symbol>
+    <symbol id="rings-e-low" viewBox="0 0 24 18">
+      <g transform="rotate(-135 12 9)">
+        <circle cx="12" cy="9" r="7" class="track" stroke-width="2.3" pathLength="100" stroke-dasharray="82 100"/>
+        <circle cx="12" cy="9" r="7" class="active" stroke-width="2.3" stroke-linecap="round" pathLength="100" stroke-dasharray="15 100"/>
+        <circle cx="12" cy="9" r="4" class="track" stroke-width="1.5" pathLength="100" stroke-dasharray="82 100"/>
+        <circle cx="12" cy="9" r="4" class="combined" stroke-width="1.5" stroke-linecap="round" pathLength="100" stroke-dasharray="48 100"/>
+      </g>
+    </symbol>
+
+    <symbol id="rings-f" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.2"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.2" stroke-linecap="round" pathLength="100" stroke-dasharray="72 100"/>
+        <circle cx="12" cy="9" r="4.1" class="track" stroke-width="1.45"/>
+        <circle cx="12" cy="9" r="4.1" class="combined" stroke-width="1.45" stroke-linecap="round" pathLength="100" stroke-dasharray="46 100"/>
+      </g>
+      <circle cx="12" cy="9" r="1.25" fill="currentColor"/>
+    </symbol>
+    <symbol id="rings-f-low" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="7.1" class="track" stroke-width="2.2"/>
+        <circle cx="12" cy="9" r="7.1" class="active" stroke-width="2.2" stroke-linecap="round" pathLength="100" stroke-dasharray="18 100"/>
+        <circle cx="12" cy="9" r="4.1" class="track" stroke-width="1.45"/>
+        <circle cx="12" cy="9" r="4.1" class="combined" stroke-width="1.45" stroke-linecap="round" pathLength="100" stroke-dasharray="58 100"/>
+      </g>
+      <circle cx="12" cy="9" r="1.25" fill="currentColor"/>
+    </symbol>
+  </defs>
+
+  <rect width="1440" height="1120" fill="#f7f8fa"/>
+  <text x="72" y="74" class="title">Circular quota indicator directions</text>
+  <text x="72" y="107" class="subtitle">Outer ring = selected account quota · Inner ring = combined quota · Template-safe in light and dark menu bars</text>
+
+  <!-- A -->
+  <g transform="translate(72 150)">
+    <rect width="408" height="420" rx="24" class="card"/>
+    <text x="28" y="42" class="label">A · RECOMMENDED</text>
+    <text x="28" y="76" class="card-title">Pure concentric</text>
+    <text x="28" y="102" class="card-copy">The cleanest two-level hierarchy.</text>
+    <g transform="translate(108 122) scale(8)" style="color:#24272c"><use xlink:href="#rings-a" width="24" height="18"/></g>
+    <text x="28" y="294" class="label">NATIVE SIZE</text>
+    <rect x="28" y="316" width="168" height="58" rx="13" class="menu-light"/>
+    <g transform="translate(100 336)" style="color:#191a1c"><use xlink:href="#rings-a" width="24" height="18"/></g>
+    <rect x="212" y="316" width="168" height="58" rx="13" class="menu-dark"/>
+    <g transform="translate(284 336)" style="color:#f5f5f6"><use xlink:href="#rings-a-low" width="24" height="18"/></g>
+    <text x="68" y="397" class="value">72 / 46</text><text x="250" y="397" class="value">18 / 58</text>
+  </g>
+
+  <!-- B -->
+  <g transform="translate(516 150)">
+    <rect width="408" height="420" rx="24" class="card"/>
+    <text x="28" y="42" class="label">B · DISTINCT</text>
+    <text x="28" y="76" class="card-title">Opposed origins</text>
+    <text x="28" y="102" class="card-copy">Values separate by direction as well as weight.</text>
+    <g transform="translate(108 122) scale(8)" style="color:#24272c"><use xlink:href="#rings-b" width="24" height="18"/></g>
+    <text x="28" y="294" class="label">NATIVE SIZE</text>
+    <rect x="28" y="316" width="168" height="58" rx="13" class="menu-light"/>
+    <g transform="translate(100 336)" style="color:#191a1c"><use xlink:href="#rings-b" width="24" height="18"/></g>
+    <rect x="212" y="316" width="168" height="58" rx="13" class="menu-dark"/>
+    <g transform="translate(284 336)" style="color:#f5f5f6"><use xlink:href="#rings-b-low" width="24" height="18"/></g>
+    <text x="68" y="397" class="value">72 / 46</text><text x="250" y="397" class="value">18 / 58</text>
+  </g>
+
+  <!-- C -->
+  <g transform="translate(960 150)">
+    <rect width="408" height="420" rx="24" class="card"/>
+    <text x="28" y="42" class="label">C · TECHNICAL</text>
+    <text x="28" y="76" class="card-title">Hard-edge meter</text>
+    <text x="28" y="102" class="card-copy">Sharper, denser, and more instrument-like.</text>
+    <g transform="translate(108 122) scale(8)" style="color:#24272c"><use xlink:href="#rings-c" width="24" height="18"/></g>
+    <text x="28" y="294" class="label">NATIVE SIZE</text>
+    <rect x="28" y="316" width="168" height="58" rx="13" class="menu-light"/>
+    <g transform="translate(100 336)" style="color:#191a1c"><use xlink:href="#rings-c" width="24" height="18"/></g>
+    <rect x="212" y="316" width="168" height="58" rx="13" class="menu-dark"/>
+    <g transform="translate(284 336)" style="color:#f5f5f6"><use xlink:href="#rings-c-low" width="24" height="18"/></g>
+    <text x="68" y="397" class="value">72 / 46</text><text x="250" y="397" class="value">18 / 58</text>
+  </g>
+
+  <!-- D -->
+  <g transform="translate(72 606)">
+    <rect width="408" height="420" rx="24" class="card"/>
+    <text x="28" y="42" class="label">D · SEGMENTED</text>
+    <text x="28" y="76" class="card-title">Aggregate ticks</text>
+    <text x="28" y="102" class="card-copy">Inner segmentation hints at many accounts.</text>
+    <g transform="translate(108 122) scale(8)" style="color:#24272c"><use xlink:href="#rings-d" width="24" height="18"/></g>
+    <text x="28" y="294" class="label">NATIVE SIZE</text>
+    <rect x="28" y="316" width="168" height="58" rx="13" class="menu-light"/>
+    <g transform="translate(100 336)" style="color:#191a1c"><use xlink:href="#rings-d" width="24" height="18"/></g>
+    <rect x="212" y="316" width="168" height="58" rx="13" class="menu-dark"/>
+    <g transform="translate(284 336)" style="color:#f5f5f6"><use xlink:href="#rings-d-low" width="24" height="18"/></g>
+    <text x="68" y="397" class="value">72 / 46</text><text x="250" y="397" class="value">18 / 58</text>
+  </g>
+
+  <!-- E -->
+  <g transform="translate(516 606)">
+    <rect width="408" height="420" rx="24" class="card"/>
+    <text x="28" y="42" class="label">E · GAUGE</text>
+    <text x="28" y="76" class="card-title">Open rings</text>
+    <text x="28" y="102" class="card-copy">A deliberate gap makes zero and full clearer.</text>
+    <g transform="translate(108 122) scale(8)" style="color:#24272c"><use xlink:href="#rings-e" width="24" height="18"/></g>
+    <text x="28" y="294" class="label">NATIVE SIZE</text>
+    <rect x="28" y="316" width="168" height="58" rx="13" class="menu-light"/>
+    <g transform="translate(100 336)" style="color:#191a1c"><use xlink:href="#rings-e" width="24" height="18"/></g>
+    <rect x="212" y="316" width="168" height="58" rx="13" class="menu-dark"/>
+    <g transform="translate(284 336)" style="color:#f5f5f6"><use xlink:href="#rings-e-low" width="24" height="18"/></g>
+    <text x="68" y="397" class="value">72 / 46</text><text x="250" y="397" class="value">18 / 58</text>
+  </g>
+
+  <!-- F -->
+  <g transform="translate(960 606)">
+    <rect width="408" height="420" rx="24" class="card"/>
+    <text x="28" y="42" class="label">F · ACTIVE MARKER</text>
+    <text x="28" y="76" class="card-title">Selected center</text>
+    <text x="28" y="102" class="card-copy">Center dot reinforces the active-account story.</text>
+    <g transform="translate(108 122) scale(8)" style="color:#24272c"><use xlink:href="#rings-f" width="24" height="18"/></g>
+    <text x="28" y="294" class="label">NATIVE SIZE</text>
+    <rect x="28" y="316" width="168" height="58" rx="13" class="menu-light"/>
+    <g transform="translate(100 336)" style="color:#191a1c"><use xlink:href="#rings-f" width="24" height="18"/></g>
+    <rect x="212" y="316" width="168" height="58" rx="13" class="menu-dark"/>
+    <g transform="translate(284 336)" style="color:#f5f5f6"><use xlink:href="#rings-f-low" width="24" height="18"/></g>
+    <text x="68" y="397" class="value">72 / 46</text><text x="250" y="397" class="value">18 / 58</text>
+  </g>
+
+  <text x="72" y="1080" class="subtitle">Labels show active / combined percentages. The darker outer ring always owns the selected-account value.</text>
+</svg>

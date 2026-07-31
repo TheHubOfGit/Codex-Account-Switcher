@@ -86,14 +86,83 @@ struct AppStateSwitchTests {
         #expect(appState.backgroundRefreshEnabled)
         #expect(appState.backgroundRefreshIntervalMinutes == 10)
     }
+
+    @Test
+    func partialRefreshPersistsFreshnessOnlyForVerifiedAccount() async {
+        let defaults = makeIsolatedDefaults()
+        let snapshot = makeTwoAccountRegistrySnapshot()
+        let result = UsageRefreshResult(
+            successfulAccountEmails: ["fresh@example.com"],
+            failedAccounts: ["failed@example.com": "401 Unauthorized"]
+        )
+        let firstState = AppState(
+            authRunner: RecordingAuthRunner(refreshResult: result),
+            registryStore: SnapshotRegistryStore(snapshot: snapshot),
+            codexController: RecordingCodexController(),
+            notifications: RecordingNotifications(),
+            startAutomatically: false,
+            userDefaults: defaults
+        )
+
+        await firstState.refreshAll(showNotifications: false)
+        let firstFresh = firstState.accounts.first { $0.email == "fresh@example.com" }!
+        let firstFailed = firstState.accounts.first { $0.email == "failed@example.com" }!
+        #expect(!firstFresh.isUsageStale)
+        #expect(firstFailed.isUsageStale)
+        #expect(firstState.refreshWarningMessage?.contains("1 refreshed, 1 cached") == true)
+
+        let reloadedState = AppState(
+            authRunner: RecordingAuthRunner(),
+            registryStore: SnapshotRegistryStore(snapshot: snapshot),
+            codexController: RecordingCodexController(),
+            notifications: RecordingNotifications(),
+            startAutomatically: false,
+            userDefaults: defaults
+        )
+        await reloadedState.refreshAll(showNotifications: false)
+
+        #expect(!reloadedState.accounts.first { $0.email == "fresh@example.com" }!.isUsageStale)
+        #expect(reloadedState.accounts.first { $0.email == "failed@example.com" }!.isUsageStale)
+
+        let failedRefreshState = AppState(
+            authRunner: RecordingAuthRunner(refreshThrows: true),
+            registryStore: SnapshotRegistryStore(snapshot: snapshot),
+            codexController: RecordingCodexController(),
+            notifications: RecordingNotifications(),
+            startAutomatically: false,
+            userDefaults: defaults
+        )
+        await failedRefreshState.refreshAll(showNotifications: false)
+
+        #expect(!failedRefreshState.accounts.first { $0.email == "fresh@example.com" }!.isUsageStale)
+        #expect(failedRefreshState.accounts.first { $0.email == "failed@example.com" }!.isUsageStale)
+    }
 }
 
 actor RecordingAuthRunner: CodexAuthRunning {
     private(set) var refreshUsageCount = 0
     private(set) var primeRequests: [RecordedPrimeRequest] = []
+    private(set) var switchQueries: [String] = []
+    private let refreshResult: UsageRefreshResult
+    private let failedPrimeAccountKeys: Set<String>
+    private let refreshThrows: Bool
 
-    func refreshUsage() async throws {
+    init(
+        refreshResult: UsageRefreshResult = .success,
+        failedPrimeAccountKeys: Set<String> = [],
+        refreshThrows: Bool = false
+    ) {
+        self.refreshResult = refreshResult
+        self.failedPrimeAccountKeys = failedPrimeAccountKeys
+        self.refreshThrows = refreshThrows
+    }
+
+    func refreshUsage() async throws -> UsageRefreshResult {
         refreshUsageCount += 1
+        if refreshThrows {
+            throw RecordingAuthRunnerError.refreshFailed
+        }
+        return refreshResult
     }
 
     func status() async throws -> AuthStatus {
@@ -107,15 +176,33 @@ actor RecordingAuthRunner: CodexAuthRunning {
         )
     }
 
-    func switchAccount(query: String) async throws {}
-    func primeUsage(accountKey: String, accountQuery: String) async throws {
-        primeRequests.append(.init(accountKey: accountKey, accountQuery: accountQuery))
+    func switchAccount(query: String) async throws {
+        switchQueries.append(query)
+    }
+    func primeUsage(account: PrimerAccountIdentity) async throws -> PrimerDeliveryResult {
+        primeRequests.append(.init(accountKey: account.accountKey, accountQuery: account.email))
+        if failedPrimeAccountKeys.contains(account.accountKey) {
+            throw RecordingAuthRunnerError.primeFailed
+        }
+        return PrimerDeliveryResult(accountKey: account.accountKey, response: "hi")
     }
 
     func setAutoSwitch(enabled: Bool) async throws {}
     func setThresholds(fiveHour: Int, weekly: Int) async throws {}
     func setUsageAPI(enabled: Bool) async throws {}
     func executableExists() async -> Bool { true }
+}
+
+private enum RecordingAuthRunnerError: LocalizedError {
+    case primeFailed
+    case refreshFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .primeFailed: "Primer request failed"
+        case .refreshFailed: "Refresh failed"
+        }
+    }
 }
 
 struct RecordedPrimeRequest: Equatable {
@@ -140,6 +227,21 @@ final class SnapshotRegistryStore: RegistryStoring {
 @MainActor
 final class RecordingCodexController: CodexAppControlling {
     private(set) var relaunchCount = 0
+    private(set) var quitCount = 0
+    private(set) var launchCount = 0
+    var isCodexRunning = true
+
+    func quitCodex() async throws -> Bool {
+        quitCount += 1
+        let wasRunning = isCodexRunning
+        isCodexRunning = false
+        return wasRunning
+    }
+
+    func launchCodex() async throws {
+        launchCount += 1
+        isCodexRunning = true
+    }
 
     func relaunchCodex() async throws {
         relaunchCount += 1
@@ -194,7 +296,47 @@ private func makeRegistrySnapshot(activeAccountKey: String) -> RegistrySnapshot 
                     secondary: UsageWindow(usedPercent: 30, windowMinutes: 10_080, resetsAt: nil),
                     planType: "team"
                 ),
-                lastUsageAt: Date.now.timeIntervalSince1970
+                lastUsageAt: Date.now.timeIntervalSince1970,
+                chatGPTAccountID: "chatgpt-\(activeAccountKey)"
+            )
+        ]
+    )
+}
+
+private func makeTwoAccountRegistrySnapshot() -> RegistrySnapshot {
+    let oldTimestamp = Date.now.addingTimeInterval(-3_600).timeIntervalSince1970
+    return RegistrySnapshot(
+        activeAccountKey: "fresh",
+        autoSwitch: AutoSwitchConfig(enabled: false, threshold5hPercent: 10, thresholdWeeklyPercent: 5),
+        api: APIConfig(usage: true),
+        accounts: [
+            RegistryAccount(
+                accountKey: "fresh",
+                email: "fresh@example.com",
+                alias: "",
+                accountName: nil,
+                plan: "team",
+                lastUsage: UsageSnapshot(
+                    primary: UsageWindow(usedPercent: 20, windowMinutes: 300, resetsAt: nil),
+                    secondary: UsageWindow(usedPercent: 30, windowMinutes: 10_080, resetsAt: nil),
+                    planType: "team"
+                ),
+                lastUsageAt: oldTimestamp,
+                chatGPTAccountID: "chatgpt-fresh"
+            ),
+            RegistryAccount(
+                accountKey: "failed",
+                email: "failed@example.com",
+                alias: "",
+                accountName: nil,
+                plan: "team",
+                lastUsage: UsageSnapshot(
+                    primary: UsageWindow(usedPercent: 40, windowMinutes: 300, resetsAt: nil),
+                    secondary: UsageWindow(usedPercent: 50, windowMinutes: 10_080, resetsAt: nil),
+                    planType: "team"
+                ),
+                lastUsageAt: oldTimestamp,
+                chatGPTAccountID: "chatgpt-failed"
             )
         ]
     )

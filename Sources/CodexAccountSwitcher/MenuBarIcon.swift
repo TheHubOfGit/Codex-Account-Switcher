@@ -1,124 +1,170 @@
 import AppKit
 
 enum MenuBarIcon {
-    private static let iconSize = NSSize(width: 24, height: 18)
-    private static let meteredIconSize = NSSize(width: 34, height: 18)
+    private static let iconSize = NSSize(width: 20, height: 18)
 
-    static func multiAuth() -> NSImage {
+    private enum PaceRing {
+        static let center = NSPoint(x: 10, y: 9)
+
+        static let outerRadius: CGFloat = 7.1
+        static let outerLineWidth: CGFloat = 2.5
+
+        static let innerRadius: CGFloat = 3.9
+
+        static let trackOpacity: CGFloat = 0.18
+        static let combinedOpacity: CGFloat = 0.60
+
+        static let tickInnerRadius: CGFloat = 8.05
+        static let tickOuterRadius: CGFloat = 8.75
+        static let tickLineWidth: CGFloat = 1.35
+    }
+
+    static func paceRing(state: MenuBarQuotaMeterState) -> NSImage {
         let image = NSImage(size: iconSize)
 
         image.lockFocus()
-        drawMultiAuthGlyph()
+        drawRing(
+            radius: PaceRing.outerRadius,
+            lineWidth: PaceRing.outerLineWidth,
+            remainingFraction: state.fillFraction,
+            remainingOpacity: state.isStale ? 0.55 : 1
+        )
+        drawPie(
+            radius: PaceRing.innerRadius,
+            remainingFraction: state.combinedFillFraction,
+            remainingOpacity: PaceRing.combinedOpacity
+        )
+        drawPaceTick(progress: state.resetProgressFraction)
         image.unlockFocus()
 
         image.isTemplate = true
-        image.accessibilityDescription = "Multiple authenticated Codex accounts"
-        return image
-    }
-
-    static func multiAuthWithFiveHourMeter(state: MenuBarQuotaMeterState) -> NSImage {
-        let image = NSImage(size: meteredIconSize)
-
-        image.lockFocus()
-        drawMultiAuthGlyph(offsetX: 0)
-        drawFiveHourMeter(state: state)
-        image.unlockFocus()
-
-        image.isTemplate = false
         image.accessibilityDescription = "Codex Account Switcher, \(state.accessibilityDescription)"
         return image
     }
 
-    private static func drawMultiAuthGlyph(offsetX: CGFloat = 0) {
-        NSColor.labelColor.setStroke()
-        NSColor.labelColor.setFill()
-
-        let primaryHead = NSBezierPath(ovalIn: NSRect(x: offsetX + 7.5, y: 10.4, width: 5.8, height: 5.8))
-        primaryHead.fill()
-
-        let secondaryHead = NSBezierPath(ovalIn: NSRect(x: offsetX + 2.7, y: 8.9, width: 5.1, height: 5.1))
-        secondaryHead.fill()
-
-        let secondaryBody = NSBezierPath(
-            roundedRect: NSRect(x: offsetX + 1.9, y: 3.2, width: 8.4, height: 6.5),
-            xRadius: 3.2,
-            yRadius: 3.2
+    private static func drawRing(
+        radius: CGFloat,
+        lineWidth: CGFloat,
+        remainingFraction: Double?,
+        remainingOpacity: CGFloat
+    ) {
+        let track = NSBezierPath()
+        track.appendArc(
+            withCenter: PaceRing.center,
+            radius: radius,
+            startAngle: 0,
+            endAngle: 360
         )
-        secondaryBody.fill()
+        track.lineWidth = lineWidth
+        NSColor.labelColor.withAlphaComponent(PaceRing.trackOpacity).setStroke()
+        track.stroke()
 
-        let primaryBody = NSBezierPath(
-            roundedRect: NSRect(x: offsetX + 5.7, y: 2.1, width: 10.2, height: 8.1),
-            xRadius: 4,
-            yRadius: 4
-        )
-        primaryBody.fill()
-
-        NSColor.clear.setFill()
-        NSBezierPath(rect: NSRect(x: offsetX + 13.2, y: 4.5, width: 8.7, height: 8.2)).fill()
-        NSColor.labelColor.setStroke()
-
-        let keyRing = NSBezierPath(ovalIn: NSRect(x: offsetX + 13.6, y: 8.2, width: 5.5, height: 5.5))
-        keyRing.lineWidth = 1.7
-        keyRing.stroke()
-
-        let keyStem = NSBezierPath()
-        keyStem.lineWidth = 1.9
-        keyStem.lineCapStyle = .round
-        keyStem.move(to: NSPoint(x: offsetX + 17.9, y: 9.1))
-        keyStem.line(to: NSPoint(x: offsetX + 22, y: 5))
-        keyStem.stroke()
-
-        let keyTooth = NSBezierPath()
-        keyTooth.lineWidth = 1.6
-        keyTooth.lineCapStyle = .square
-        keyTooth.move(to: NSPoint(x: offsetX + 20.1, y: 6.9))
-        keyTooth.line(to: NSPoint(x: offsetX + 21.7, y: 8.5))
-        keyTooth.move(to: NSPoint(x: offsetX + 21.1, y: 5.9))
-        keyTooth.line(to: NSPoint(x: offsetX + 22.6, y: 7.4))
-        keyTooth.stroke()
-    }
-
-    private static func drawFiveHourMeter(state: MenuBarQuotaMeterState) {
-        let trackRect = NSRect(x: 26, y: 3, width: 5, height: 12)
-        let track = NSBezierPath(roundedRect: trackRect, xRadius: 2.5, yRadius: 2.5)
-
-        NSColor.tertiaryLabelColor.withAlphaComponent(0.35).setFill()
-        track.fill()
-
-        guard state.remainingPercent != nil else {
+        guard let remainingFraction else {
             return
         }
 
-        let fillHeight = max(1.5, trackRect.height * state.fillFraction)
-        let fillRect = NSRect(
-            x: trackRect.minX,
-            y: trackRect.minY,
-            width: trackRect.width,
-            height: fillHeight
-        )
-        let fill = NSBezierPath(roundedRect: fillRect, xRadius: 2.5, yRadius: 2.5)
+        let remaining = min(max(remainingFraction, 0), 1)
+        guard remaining > 0 else {
+            return
+        }
 
-        meterColor(for: state).setFill()
-        fill.fill()
+        let available = NSBezierPath()
+        available.lineWidth = lineWidth
+        available.lineCapStyle = .butt
+
+        if remaining >= 1 {
+            available.appendArc(
+                withCenter: PaceRing.center,
+                radius: radius,
+                startAngle: 0,
+                endAngle: 360
+            )
+        } else {
+            let used = 1 - remaining
+            let remainingStartAngle = 90 - (used * 360)
+            available.appendArc(
+                withCenter: PaceRing.center,
+                radius: radius,
+                startAngle: remainingStartAngle,
+                endAngle: 90,
+                clockwise: true
+            )
+        }
+
+        NSColor.labelColor.withAlphaComponent(remainingOpacity).setStroke()
+        available.stroke()
     }
 
-    private static func meterColor(for state: MenuBarQuotaMeterState) -> NSColor {
-        guard let remaining = state.remainingPercent else {
-            return .tertiaryLabelColor
+    private static func drawPie(
+        radius: CGFloat,
+        remainingFraction: Double?,
+        remainingOpacity: CGFloat
+    ) {
+        let pieRect = NSRect(
+            x: PaceRing.center.x - radius,
+            y: PaceRing.center.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+
+        NSColor.labelColor.withAlphaComponent(PaceRing.trackOpacity).setFill()
+        NSBezierPath(ovalIn: pieRect).fill()
+
+        guard let remainingFraction else {
+            return
         }
 
-        if state.isStale {
-            return .systemGray
+        let remaining = min(max(remainingFraction, 0), 1)
+        guard remaining > 0 else {
+            return
         }
 
-        if remaining <= 10 {
-            return .systemRed
+        let available = NSBezierPath()
+        if remaining >= 1 {
+            available.appendOval(in: pieRect)
+        } else {
+            let used = 1 - remaining
+            let remainingStartAngle = 90 - (used * 360)
+            available.move(to: PaceRing.center)
+            available.line(to: point(
+                radius: radius,
+                angle: remainingStartAngle * .pi / 180
+            ))
+            available.appendArc(
+                withCenter: PaceRing.center,
+                radius: radius,
+                startAngle: remainingStartAngle,
+                endAngle: 90,
+                clockwise: true
+            )
+            available.close()
         }
 
-        if remaining <= 30 {
-            return .systemOrange
+        NSColor.labelColor.withAlphaComponent(remainingOpacity).setFill()
+        available.fill()
+    }
+
+    private static func drawPaceTick(progress: Double?) {
+        guard let progress else {
+            return
         }
 
-        return .systemGreen
+        let clampedProgress = min(max(progress, 0), 1)
+        let angle = (.pi / 2) - (2 * .pi * clampedProgress)
+        let tick = NSBezierPath()
+        tick.lineWidth = PaceRing.tickLineWidth
+        tick.lineCapStyle = .round
+        tick.move(to: point(radius: PaceRing.tickInnerRadius, angle: angle))
+        tick.line(to: point(radius: PaceRing.tickOuterRadius, angle: angle))
+
+        NSColor.labelColor.setStroke()
+        tick.stroke()
+    }
+
+    private static func point(radius: CGFloat, angle: CGFloat) -> NSPoint {
+        NSPoint(
+            x: PaceRing.center.x + cos(angle) * radius,
+            y: PaceRing.center.y + sin(angle) * radius
+        )
     }
 }

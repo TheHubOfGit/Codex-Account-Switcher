@@ -17,6 +17,35 @@ enum UsageMode: String, Equatable {
     }
 }
 
+struct CodexAuthVersion: Comparable, Equatable {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    static let minimumSupported = CodexAuthVersion(major: 0, minor: 2, patch: 10)
+
+    init?(output: String) {
+        guard let match = output.firstMatch(for: #"(\d+\.\d+\.\d+)"#) else {
+            return nil
+        }
+        let parts = match.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        major = parts[0]
+        minor = parts[1]
+        patch = parts[2]
+    }
+
+    init(major: Int, minor: Int, patch: Int) {
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+    }
+
+    static func < (lhs: CodexAuthVersion, rhs: CodexAuthVersion) -> Bool {
+        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+    }
+}
+
 struct AuthStatus: Equatable {
     var autoSwitchEnabled: Bool
     var serviceStatus: String?
@@ -77,22 +106,29 @@ struct RegistrySnapshot: Decodable, Equatable {
         return try decoder.decode(RegistrySnapshot.self, from: data)
     }
 
-    func accountSnapshots(now: Date = .now, staleAfter seconds: TimeInterval = 30 * 60) -> [AccountSnapshot] {
-        let isSnapshotStale = refreshedAt.map { now.timeIntervalSince($0) > seconds } ?? false
-
+    func accountSnapshots(
+        now: Date = .now,
+        staleAfter seconds: TimeInterval = 30 * 60,
+        usageCheckedAtByAccountKey: [String: Date] = [:],
+        resetCreditsByAccountKey: [String: RateLimitResetCreditsSnapshot] = [:]
+    ) -> [AccountSnapshot] {
         return accounts.map { account in
             let isActive = account.accountKey == activeAccountKey
             let lastRefreshDate = account.lastUsageAt.map(Date.init(timeIntervalSince1970:))
+            let checkedAt = usageCheckedAtByAccountKey[account.accountKey] ?? lastRefreshDate
+            let windows = account.lastUsage?.classifiedWindows
 
             let fiveHour = QuotaWindowState(
-                usedPercent: account.lastUsage?.primary?.usedPercent,
-                resetAt: account.lastUsage?.primary?.resetsAt.map(Date.init(timeIntervalSince1970:)),
-                isStale: isSnapshotStale
+                usedPercent: windows?.fiveHour?.usedPercent,
+                resetAt: windows?.fiveHour?.resetsAt.map(Date.init(timeIntervalSince1970:)),
+                checkedAt: checkedAt,
+                staleAfter: seconds
             )
             let weekly = QuotaWindowState(
-                usedPercent: account.lastUsage?.secondary?.usedPercent,
-                resetAt: account.lastUsage?.secondary?.resetsAt.map(Date.init(timeIntervalSince1970:)),
-                isStale: isSnapshotStale
+                usedPercent: windows?.weekly?.usedPercent,
+                resetAt: windows?.weekly?.resetsAt.map(Date.init(timeIntervalSince1970:)),
+                checkedAt: checkedAt,
+                staleAfter: seconds
             )
 
             return AccountSnapshot(
@@ -104,7 +140,8 @@ struct RegistrySnapshot: Decodable, Equatable {
                 isActive: isActive,
                 fiveHour: fiveHour,
                 weekly: weekly,
-                lastRefresh: lastRefreshDate
+                lastRefresh: lastRefreshDate,
+                resetCredits: resetCreditsByAccountKey[account.accountKey]
             )
         }
         .sorted { lhs, rhs in
@@ -141,6 +178,7 @@ struct RegistryAccount: Decodable, Equatable {
     let plan: String?
     let lastUsage: UsageSnapshot?
     let lastUsageAt: TimeInterval?
+    let chatGPTAccountID: String?
 
     enum CodingKeys: String, CodingKey {
         case accountKey = "account_key"
@@ -150,6 +188,27 @@ struct RegistryAccount: Decodable, Equatable {
         case plan
         case lastUsage = "last_usage"
         case lastUsageAt = "last_usage_at"
+        case chatGPTAccountID = "chatgpt_account_id"
+    }
+
+    init(
+        accountKey: String,
+        email: String,
+        alias: String,
+        accountName: String?,
+        plan: String?,
+        lastUsage: UsageSnapshot?,
+        lastUsageAt: TimeInterval?,
+        chatGPTAccountID: String? = nil
+    ) {
+        self.accountKey = accountKey
+        self.email = email
+        self.alias = alias
+        self.accountName = accountName
+        self.plan = plan
+        self.lastUsage = lastUsage
+        self.lastUsageAt = lastUsageAt
+        self.chatGPTAccountID = chatGPTAccountID
     }
 }
 
@@ -162,6 +221,19 @@ struct UsageSnapshot: Decodable, Equatable {
         case primary
         case secondary
         case planType = "plan_type"
+    }
+
+    var classifiedWindows: (fiveHour: UsageWindow?, weekly: UsageWindow?) {
+        let windows = [primary, secondary].compactMap(\.self)
+        let fiveHour = windows.first { $0.windowMinutes == 5 * 60 }
+        let weekly = windows.first { $0.windowMinutes == 7 * 24 * 60 }
+
+        if fiveHour != nil || weekly != nil {
+            return (fiveHour, weekly)
+        }
+
+        // Compatibility with older registry entries that did not record durations.
+        return (primary, secondary)
     }
 }
 
@@ -180,7 +252,51 @@ struct UsageWindow: Decodable, Equatable {
 struct QuotaWindowState: Equatable {
     let usedPercent: Int?
     let resetAt: Date?
-    let isStale: Bool
+    let checkedAt: Date?
+    let staleAfter: TimeInterval
+    private let staleOverride: Bool?
+
+    init(
+        usedPercent: Int?,
+        resetAt: Date?,
+        checkedAt: Date?,
+        staleAfter: TimeInterval = 30 * 60
+    ) {
+        self.usedPercent = usedPercent
+        self.resetAt = resetAt
+        self.checkedAt = checkedAt
+        self.staleAfter = staleAfter
+        staleOverride = nil
+    }
+
+    init(usedPercent: Int?, resetAt: Date?, isStale: Bool) {
+        self.usedPercent = usedPercent
+        self.resetAt = resetAt
+        checkedAt = nil
+        staleAfter = 30 * 60
+        staleOverride = isStale
+    }
+
+    var isStale: Bool {
+        isStale(at: .now)
+    }
+
+    func isStale(at now: Date) -> Bool {
+        if let staleOverride {
+            return staleOverride
+        }
+
+        guard let checkedAt else {
+            return true
+        }
+
+        return now.timeIntervalSince(checkedAt) > staleAfter
+    }
+
+    func isResetPending(at now: Date = .now) -> Bool {
+        guard let resetAt else { return false }
+        return resetAt <= now
+    }
 
     var remainingPercent: Int? {
         usedPercent.map { max(0, 100 - $0) }
@@ -201,6 +317,31 @@ struct AccountSnapshot: Identifiable, Equatable {
     let fiveHour: QuotaWindowState
     let weekly: QuotaWindowState
     let lastRefresh: Date?
+    let resetCredits: RateLimitResetCreditsSnapshot?
+
+    init(
+        accountKey: String,
+        email: String,
+        alias: String?,
+        accountName: String?,
+        plan: String?,
+        isActive: Bool,
+        fiveHour: QuotaWindowState,
+        weekly: QuotaWindowState,
+        lastRefresh: Date?,
+        resetCredits: RateLimitResetCreditsSnapshot? = nil
+    ) {
+        self.accountKey = accountKey
+        self.email = email
+        self.alias = alias
+        self.accountName = accountName
+        self.plan = plan
+        self.isActive = isActive
+        self.fiveHour = fiveHour
+        self.weekly = weekly
+        self.lastRefresh = lastRefresh
+        self.resetCredits = resetCredits
+    }
 
     var id: String { accountKey }
 
@@ -225,7 +366,15 @@ struct AccountSnapshot: Identifiable, Equatable {
     }
 
     var isUsageStale: Bool {
-        fiveHour.isStale || weekly.isStale
+        isUsageStale(at: .now)
+    }
+
+    func isUsageStale(at now: Date) -> Bool {
+        fiveHour.isStale(at: now) || weekly.isStale(at: now)
+    }
+
+    func hasResetPending(at now: Date = .now) -> Bool {
+        fiveHour.isResetPending(at: now) || weekly.isResetPending(at: now)
     }
 
     var averageRemainingPercent: Int? {
@@ -259,6 +408,7 @@ struct AccountSnapshot: Identifiable, Equatable {
         hasIdentity
             && hasQuotaData
             && !isUsageStale
+            && !hasResetPending()
             && !isExhausted(fiveHourThreshold: fiveHourThreshold, weeklyThreshold: weeklyThreshold)
     }
 
@@ -338,8 +488,12 @@ struct FleetQuotaSummary: Equatable {
         fiveHourThreshold: Int = 0,
         weeklyThreshold: Int = 0
     ) -> FleetQuotaSummary {
-        let freshAccounts = accounts.filter { $0.hasQuotaData && !$0.isUsageStale }
-        let staleAccountCount = accounts.filter { $0.hasQuotaData && $0.isUsageStale }.count
+        let freshAccounts = accounts.filter {
+            $0.hasQuotaData && !$0.isUsageStale(at: now) && !$0.hasResetPending(at: now)
+        }
+        let staleAccountCount = accounts.filter {
+            $0.hasQuotaData && ($0.isUsageStale(at: now) || $0.hasResetPending(at: now))
+        }.count
         let exhaustedAccountCount = freshAccounts.filter {
             $0.isExhausted(fiveHourThreshold: fiveHourThreshold, weeklyThreshold: weeklyThreshold)
         }.count

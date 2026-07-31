@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1440" height="1000" viewBox="0 0 1440 1000">
+  <defs>
+    <style>
+      text { font-family: Helvetica; }
+      .title { font-size: 36px; font-weight: 700; fill: #17191d; }
+      .subtitle { font-size: 18px; fill: #666b73; }
+      .section { font-size: 13px; font-weight: 700; fill: #8a9099; letter-spacing: 1.2px; }
+      .card-title { font-size: 23px; font-weight: 700; fill: #1d2025; }
+      .copy { font-size: 16px; fill: #686d76; }
+      .small { font-size: 14px; fill: #747983; }
+      .value { font-size: 14px; font-weight: 700; fill: #3e4249; }
+      .card { fill: #fff; stroke: #dfe2e7; stroke-width: 1; }
+      .menu-light { fill: #f0f0f1; }
+      .menu-dark { fill: #292a2d; }
+      .remaining { fill: none; stroke: currentColor; opacity: .18; }
+      .active-remaining { fill: none; stroke: currentColor; }
+      .combined-remaining { fill: none; stroke: currentColor; opacity: .60; }
+      .callout { fill: none; stroke: #9ba1aa; stroke-width: 1.5; }
+    </style>
+
+    <!--
+      Native 24 × 18 pt menu-bar canvas.
+      Both tracks are complete circles. The empty portion advances clockwise
+      from 12 while the dark remaining portion drains from full toward empty.
+      The outer tick marks 55% elapsed in the active reset window.
+    -->
+    <symbol id="pace-under" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="6.45" class="remaining" stroke-width="2.5"/>
+        <circle cx="12" cy="9" r="6.45" class="active-remaining" stroke-width="2.5" stroke-linecap="butt" pathLength="100" stroke-dasharray="65 100" stroke-dashoffset="-35"/>
+        <circle cx="12" cy="9" r="3.35" class="remaining" stroke-width="1.65"/>
+        <circle cx="12" cy="9" r="3.35" class="combined-remaining" stroke-width="1.65" stroke-linecap="butt" pathLength="100" stroke-dasharray="58 100" stroke-dashoffset="-42"/>
+      </g>
+      <path d="M9.59 16.42 9.31 17.27" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="pace-even" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="6.45" class="remaining" stroke-width="2.5"/>
+        <circle cx="12" cy="9" r="6.45" class="active-remaining" stroke-width="2.5" stroke-linecap="butt" pathLength="100" stroke-dasharray="45 100" stroke-dashoffset="-55"/>
+        <circle cx="12" cy="9" r="3.35" class="remaining" stroke-width="1.65"/>
+        <circle cx="12" cy="9" r="3.35" class="combined-remaining" stroke-width="1.65" stroke-linecap="butt" pathLength="100" stroke-dasharray="50 100" stroke-dashoffset="-50"/>
+      </g>
+      <path d="M9.59 16.42 9.31 17.27" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="pace-over" viewBox="0 0 24 18">
+      <g transform="rotate(-90 12 9)">
+        <circle cx="12" cy="9" r="6.45" class="remaining" stroke-width="2.5"/>
+        <circle cx="12" cy="9" r="6.45" class="active-remaining" stroke-width="2.5" stroke-linecap="butt" pathLength="100" stroke-dasharray="28 100" stroke-dashoffset="-72"/>
+        <circle cx="12" cy="9" r="3.35" class="remaining" stroke-width="1.65"/>
+        <circle cx="12" cy="9" r="3.35" class="combined-remaining" stroke-width="1.65" stroke-linecap="butt" pathLength="100" stroke-dasharray="42 100" stroke-dashoffset="-58"/>
+      </g>
+      <path d="M9.59 16.42 9.31 17.27" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+
+  <rect width="1440" height="1000" fill="#f7f8fa"/>
+  <text x="72" y="78" class="title">Pace ring</text>
+  <text x="72" y="114" class="subtitle">A gapless countdown meter that drains from full to empty while comparing usage with elapsed time.</text>
+
+  <!-- Anatomy -->
+  <g transform="translate(72 158)">
+    <rect width="816" height="476" rx="26" class="card"/>
+    <text x="32" y="48" class="section">CONCEPT ANATOMY</text>
+    <text x="32" y="86" class="card-title">Full → empty, clockwise</text>
+    <text x="32" y="116" class="copy">The light empty portion advances clockwise from 12 o’clock; the dark available portion drains behind it.</text>
+
+    <g transform="translate(94 156) scale(13)" style="color:#24272c">
+      <use xlink:href="#pace-over" width="24" height="18"/>
+    </g>
+
+    <!-- Callouts -->
+    <path d="M345 188 C420 162 466 154 528 154" class="callout"/>
+    <circle cx="345" cy="188" r="4" fill="#24272c"/>
+    <text x="548" y="150" class="section">OUTER · ACTIVE ACCOUNT</text>
+    <text x="548" y="176" class="copy">28% remaining</text>
+
+    <path d="M309 264 C418 265 458 256 528 246" class="callout"/>
+    <circle cx="309" cy="264" r="4" fill="#6f747c"/>
+    <text x="548" y="242" class="section">INNER · COMBINED QUOTA</text>
+    <text x="548" y="268" class="copy">42% remaining</text>
+
+    <path d="M221 371 C376 404 450 384 528 354" class="callout"/>
+    <circle cx="221" cy="371" r="4" fill="#24272c"/>
+    <text x="548" y="350" class="section">PACE TICK · RESET WINDOW</text>
+    <text x="548" y="376" class="copy">55% elapsed — roughly day 4 of 7</text>
+
+    <rect x="548" y="408" width="220" height="42" rx="12" fill="#f0f1f3"/>
+    <text x="568" y="434" class="value">Empty edge past tick = over pace</text>
+  </g>
+
+  <!-- Native specimen -->
+  <g transform="translate(924 158)">
+    <rect width="444" height="476" rx="26" class="card"/>
+    <text x="30" y="48" class="section">MENU-BAR PROOF · 1×</text>
+    <text x="30" y="86" class="card-title">Selected account</text>
+    <text x="30" y="116" class="small">Same icon in light and dark appearances.</text>
+
+    <rect x="30" y="150" width="384" height="76" rx="16" class="menu-light"/>
+    <g transform="translate(210 179)" style="color:#191a1c"><use xlink:href="#pace-over" width="24" height="18"/></g>
+    <rect x="30" y="244" width="384" height="76" rx="16" class="menu-dark"/>
+    <g transform="translate(210 273)" style="color:#f5f5f6"><use xlink:href="#pace-over" width="24" height="18"/></g>
+
+    <text x="30" y="360" class="section">READOUT</text>
+    <text x="30" y="392" class="value">Active remaining</text><text x="174" y="392" class="small">28%</text>
+    <text x="30" y="420" class="value">Combined remaining</text><text x="174" y="420" class="small">42%</text>
+    <text x="30" y="448" class="value">Window elapsed</text><text x="154" y="448" class="small">55% · over pace</text>
+  </g>
+
+  <!-- Pace comparison -->
+  <text x="72" y="690" class="section">THE GLANCEABLE RELATIONSHIP</text>
+
+  <g transform="translate(72 720)">
+    <rect width="408" height="216" rx="24" class="card"/>
+    <g transform="translate(30 34) scale(6)" style="color:#24272c"><use xlink:href="#pace-under" width="24" height="18"/></g>
+    <text x="208" y="62" class="card-title">Under pace</text>
+    <text x="208" y="92" class="copy">65% left · 55% elapsed</text>
+    <text x="208" y="122" class="small">Empty edge is before the tick.</text>
+    <rect x="208" y="150" width="122" height="34" rx="10" fill="#f0f1f3"/>
+    <text x="226" y="172" class="value">20 pts ahead</text>
+  </g>
+
+  <g transform="translate(516 720)">
+    <rect width="408" height="216" rx="24" class="card"/>
+    <g transform="translate(30 34) scale(6)" style="color:#24272c"><use xlink:href="#pace-even" width="24" height="18"/></g>
+    <text x="208" y="62" class="card-title">On pace</text>
+    <text x="208" y="92" class="copy">45% left · 55% elapsed</text>
+    <text x="208" y="122" class="small">Empty edge meets the tick.</text>
+    <rect x="208" y="150" width="102" height="34" rx="10" fill="#f0f1f3"/>
+    <text x="228" y="172" class="value">balanced</text>
+  </g>
+
+  <g transform="translate(960 720)">
+    <rect width="408" height="216" rx="24" class="card"/>
+    <g transform="translate(30 34) scale(6)" style="color:#24272c"><use xlink:href="#pace-over" width="24" height="18"/></g>
+    <text x="208" y="62" class="card-title">Over pace</text>
+    <text x="208" y="92" class="copy">28% left · 55% elapsed</text>
+    <text x="208" y="122" class="small">Empty edge has passed the tick.</text>
+    <rect x="208" y="150" width="122" height="34" rx="10" fill="#f0f1f3"/>
+    <text x="225" y="172" class="value">17 pts behind</text>
+  </g>
+
+  <text x="72" y="978" class="subtitle">Template-only rendering: hierarchy comes from stroke weight and opacity, not color.</text>
+</svg>

@@ -4,17 +4,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Codex Account Switcher"
 PRODUCT_NAME="CodexAccountSwitcher"
-BUILD_DIR="$ROOT_DIR/.build/arm64-apple-macosx/debug"
+BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-release}"
 APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-EXECUTABLE_PATH="$BUILD_DIR/$PRODUCT_NAME"
 ICONSET_DIR="$ROOT_DIR/.build/AppIcon.iconset"
 ICON_PATH="$RESOURCES_DIR/AppIcon.icns"
 
 cd "$ROOT_DIR"
-swift build
+swift build -c "$BUILD_CONFIGURATION"
+BUILD_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
+EXECUTABLE_PATH="$BUILD_DIR/$PRODUCT_NAME"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"

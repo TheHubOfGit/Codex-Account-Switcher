@@ -19,25 +19,26 @@ enum CodexAppError: LocalizedError {
 final class CodexAppController: CodexAppControlling {
     let bundleIdentifier = "com.openai.codex"
 
-    func relaunchCodex() async throws {
+    func quitCodex() async throws -> Bool {
         let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+
+        guard !runningApps.isEmpty else { return false }
 
         for app in runningApps {
             app.terminate()
         }
 
-        if !runningApps.isEmpty {
-            let terminated = await waitUntilCodexExits(timeout: 1.2)
-
-            if !terminated {
-                for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier) {
-                    app.forceTerminate()
-                }
-
-                _ = await waitUntilCodexExits(timeout: 0.8)
-            }
+        let terminated = await waitUntilCodexExits(timeout: 5)
+        if !terminated {
+            throw CodexAppError.launchFailed(
+                "Codex did not close after 5 seconds. Close it manually, then try again."
+            )
         }
 
+        return true
+    }
+
+    func launchCodex() async throws {
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
             throw CodexAppError.applicationNotFound
         }
@@ -54,6 +55,11 @@ final class CodexAppController: CodexAppControlling {
                 }
             }
         }
+    }
+
+    func relaunchCodex() async throws {
+        _ = try await quitCodex()
+        try await launchCodex()
     }
 
     private func waitUntilCodexExits(timeout: TimeInterval) async -> Bool {

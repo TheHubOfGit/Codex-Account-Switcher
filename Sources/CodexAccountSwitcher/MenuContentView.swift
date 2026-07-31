@@ -4,62 +4,48 @@ struct MenuContentView: View {
     private static let segmentedQuotaProgressBarHeight: CGFloat = 8
 
     @EnvironmentObject private var appState: AppState
+    var onPreferredHeightChange: (CGFloat) -> Void = { _ in }
+    var onAccountSwitchRequested: ((AccountSnapshot) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if let setupIssue = appState.setupIssue {
-                setupStateView(setupIssue)
-            } else {
-                headerView
-                fleetQuotaView
-                actionSection
-                Divider()
-                accountsSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let setupIssue = appState.setupIssue {
+                    setupStateView(setupIssue)
+                } else {
+                    headerView
+                    fleetQuotaView
+                    actionSection
+                    accountsSection
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: PreferredPopoverHeightKey.self,
+                        value: proxy.size.height
+                    )
+                }
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .onPreferenceChange(PreferredPopoverHeightKey.self) { height in
+            guard height > 0 else { return }
+            onPreferredHeightChange(height)
+        }
     }
 
     private var headerView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(appState.activeAccount?.primaryLabel ?? "No active account")
-                .font(.headline)
-
-            if let active = appState.activeAccount {
-                if let secondary = active.secondaryLabel {
-                    Text(secondary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    quotaBadge(title: "5h", summary: QuotaSummary.fiveHourLimitLeft(for: active.fiveHour))
-                    quotaBadge(title: "Week", summary: QuotaSummary.weeklyLimitLeft(for: active.weekly))
-                }
-
-                Text("Auto Monitor: \(appState.autoMonitorEnabled ? "On" : "Off")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let lastRefresh = active.lastRefresh {
-                    Text("Last refresh \(lastRefresh.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Quota unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        PopoverHeaderView(
+            activeAccount: appState.activeAccount,
+            checkedAt: appState.lastSuccessfulRefreshAt,
+            isRefreshing: appState.isRefreshing,
+            errorMessage: appState.headerMessage,
+            refreshAction: {
+                Task { await appState.refreshAll() }
             }
-
-            if let lastError = appState.lastErrorMessage {
-                Text(lastError)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        )
     }
 
     private var fleetQuotaView: some View {
@@ -70,41 +56,35 @@ struct MenuContentView: View {
         let weeklyAverageValue = appState.weeklyPaceDemoEnabled
             ? demoWeeklyPaceValue(paceSegments: weeklyPaceSegments)
             : summary.averageWeeklyRemaining
-        let weeklyStrengthValue = appState.weeklyPaceDemoEnabled
-            ? demoWeeklyPaceValue(paceSegments: weeklyPaceSegments)
-            : summary.averageWeeklyStrength
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        return VStack(alignment: .leading, spacing: Spacing.s) {
+            HStack(spacing: Spacing.s) {
                 Text("Combined Quota")
                     .font(.headline)
                 Spacer()
                 Text("\(summary.freshAccounts)/\(summary.totalAccounts) fresh")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if summary.staleAccounts > 0 {
+                    statusPill(
+                        text: "\(summary.staleAccounts) stale",
+                        tint: .orange
+                    )
+                }
+
+                if summary.exhaustedAccounts > 0 {
+                    statusPill(
+                        text: "\(summary.exhaustedAccounts) exhausted",
+                        tint: .red
+                    )
+                }
             }
 
-            HStack {
-                Spacer()
-                Text("Strength")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 50)
-            }
-
-            quotaMeterWithStrength(
-                title: "5h average",
-                value: summary.averageFiveHourRemaining,
-                lowValue: summary.lowestFiveHourRemaining,
-                strengthValue: summary.averageFiveHourStrength
-            )
-            quotaMeterWithStrength(
+            quotaMeter(
                 title: "Weekly average",
                 value: weeklyAverageValue,
                 lowValue: summary.lowestWeeklyRemaining,
-                strengthValue: weeklyStrengthValue,
                 progressSegments: 7,
-                strengthSegments: 7,
                 paceSegments: weeklyPaceSegments
             )
 
@@ -113,33 +93,33 @@ struct MenuContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
-            if summary.exhaustedAccounts > 0 || summary.staleAccounts > 0 {
-                Text("\(summary.exhaustedAccounts) exhausted / \(summary.staleAccounts) stale")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        .padding(Spacing.m)
+        .background(Color.codexCardFill, in: RoundedRectangle(cornerRadius: Radius.card))
     }
 
     private var actionSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(appState.isRefreshing ? "Refreshing…" : "Refresh Quota") {
-                Task { await appState.refreshAll() }
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            if let candidate = appState.bestAvailableAccount,
+               candidate.accountKey != appState.activeAccount?.accountKey {
+                Button {
+                    requestAccountSwitch(candidate)
+                } label: {
+                    Label("Switch to \(candidate.primaryLabel)", systemImage: "arrow.left.arrow.right.circle")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.codexAccent)
+                .controlSize(.regular)
+                .disabled(
+                    !appState.isCodexAuthSupported
+                        || appState.isRefreshing
+                        || appState.isSwitching
+                        || appState.isRestarting
+                )
+                .accessibilityHint("Switches accounts and restarts Codex")
             }
-            .disabled(appState.isRefreshing || appState.isSwitching)
-
-            Button("Switch to Lowest Eligible") {
-                Task { await appState.switchToBestAvailable() }
-            }
-            .disabled(appState.isRefreshing || appState.isSwitching || appState.bestAvailableAccount == nil)
-
-            Button("Restart Codex") {
-                Task { await appState.restartCodex() }
-            }
-            .disabled(appState.isSwitching)
 
             Toggle(isOn: Binding(
                 get: { appState.autoMonitorEnabled },
@@ -151,88 +131,99 @@ struct MenuContentView: View {
             }
             .disabled(appState.isSavingSettings)
 
-            HStack(spacing: 12) {
+            Divider()
+
+            HStack(spacing: Spacing.l) {
                 Button("Settings…") {
                     appState.openSettings()
                 }
+
+                Spacer()
+
+                Button(appState.isRestarting ? "Restarting…" : "Restart Codex") {
+                    Task { await appState.restartCodex() }
+                }
+                .disabled(appState.isRestarting || appState.isSwitching)
 
                 Button("Quit") {
                     appState.quit()
                 }
             }
-            .buttonStyle(.link)
+            .frame(minHeight: 28)
+            .padding(.vertical, Spacing.xs)
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .foregroundStyle(.secondary)
+
+            Divider()
         }
     }
 
     private var accountsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Accounts")
-                .font(.headline)
+        let listedAccounts = accountsForList
+        return VStack(alignment: .leading, spacing: Spacing.s) {
+            HStack(spacing: Spacing.s) {
+                Text(appState.activeAccount == nil ? "Accounts" : "Other Accounts")
+                    .font(.headline)
+                Spacer()
+                if !listedAccounts.isEmpty {
+                    Text("\(listedAccounts.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
 
-            if appState.accounts.isEmpty {
-                Text("No accounts found.")
+            if listedAccounts.isEmpty {
+                Text(appState.accounts.isEmpty ? "No accounts found." : "No other accounts.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(appState.accounts) { account in
-                    Button {
-                        Task { await appState.switchToAccount(account) }
-                    } label: {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: account.isActive ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(account.isActive ? .green : .secondary)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(account.primaryLabel)
-                                        .fontWeight(account.isActive ? .semibold : .regular)
-                                    Spacer()
-                                    Text(account.planLabel)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                if let secondary = account.secondaryLabel {
-                                    Text(secondary)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                HStack(spacing: 10) {
-                                    Text("5h \(QuotaSummary.fiveHourLimitLeft(for: account.fiveHour))")
-                                    Text("Week \(QuotaSummary.weeklyLimitLeft(for: account.weekly))")
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
+                LazyVStack(alignment: .leading, spacing: Spacing.s) {
+                    ForEach(listedAccounts) { account in
+                        AccountRow(
+                            account: account,
+                            isDisabled: !appState.isCodexAuthSupported
+                                || appState.isSwitching
+                                || appState.isRestarting
+                                || account.isActive
+                        ) {
+                            requestAccountSwitch(account)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .disabled(appState.isSwitching)
                 }
             }
         }
     }
 
-    private func quotaBadge(title: String, state: QuotaWindowState) -> some View {
-        quotaBadge(title: title, summary: quotaSummary(for: state))
+    private var accountsForList: [AccountSnapshot] {
+        guard appState.activeAccount != nil else { return appState.accounts }
+        return appState.accounts.filter { !$0.isActive }
     }
 
-    private func quotaBadge(title: String, summary: String) -> some View {
-        Text("\(title) \(summary)")
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.quaternary.opacity(0.8), in: Capsule())
+    private func requestAccountSwitch(_ account: AccountSnapshot) {
+        if let onAccountSwitchRequested {
+            onAccountSwitchRequested(account)
+        } else {
+            Task { await appState.switchToAccount(account) }
+        }
     }
 
-    private func quotaMeterWithStrength(
+    private func statusPill(text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.caption2)
+            .fontWeight(.medium)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, Spacing.s)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.15), in: Capsule())
+    }
+
+    private func quotaMeter(
         title: String,
         value: Int?,
         lowValue: Int?,
-        strengthValue: Int?,
         progressSegments: Int? = nil,
-        strengthSegments: Int? = nil,
         paceSegments: Int = 0
     ) -> some View {
         HStack(alignment: .center, spacing: 10) {
@@ -251,12 +242,10 @@ struct MenuContentView: View {
             }
             .frame(maxWidth: .infinity)
 
-            strengthGauge(value: strengthValue, segments: strengthSegments, paceSegments: paceSegments)
         }
-    }
-
-    private func quotaSummary(for state: QuotaWindowState) -> String {
-        QuotaSummary.limitLeft(for: state)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(quotaAverageSummary(value: value, lowValue: lowValue))
     }
 
     private func quotaAverageSummary(value: Int?, lowValue: Int?) -> String {
@@ -417,24 +406,291 @@ struct MenuContentView: View {
     }
 
     private func setupStateView(_ issue: SetupIssue) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(issue.title)
-                .font(.headline)
-            Text(issue.message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: Spacing.m) {
+            HStack(alignment: .top, spacing: Spacing.m) {
+                Image(systemName: setupIssueIconName(for: issue))
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                    .frame(width: 28, alignment: .center)
+                    .accessibilityHidden(true)
 
-            HStack(spacing: 12) {
-                Button("Retry") {
-                    Task { await appState.refreshAll(showNotifications: false) }
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text(issue.title)
+                        .font(.headline)
+                    Text(issue.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+
+            HStack(spacing: Spacing.m) {
+                Button {
+                    Task { await appState.refreshAll(showNotifications: false) }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.codexAccent)
+                .controlSize(.regular)
+
+                Spacer()
 
                 Button("Quit") {
                     appState.quit()
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func setupIssueIconName(for issue: SetupIssue) -> String {
+        switch issue {
+        case .missingCodexAuth:
+            return "terminal"
+        case .missingRegistry:
+            return "questionmark.folder"
+        case .unreadableRegistry:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+}
+
+private struct PreferredPopoverHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+
+/// Header for the popover — renders the active account identity, two quota
+/// pills, a last-refresh caption, and an optional error callout.
+private struct PopoverHeaderView: View {
+    let activeAccount: AccountSnapshot?
+    let checkedAt: Date?
+    let isRefreshing: Bool
+    let errorMessage: String?
+    let refreshAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
+                Text(activeAccount?.primaryLabel ?? "No active account")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                if let active = activeAccount, active.secondaryLabel == nil {
+                    InlineWeeklyQuotaBar(state: active.weekly)
+                }
+
+                Spacer()
+
+                Button(action: refreshAction) {
+                    Image(systemName: "arrow.clockwise")
+                        .rotationEffect(isRefreshing ? .degrees(360) : .zero)
+                        .animation(
+                            isRefreshing
+                                ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                                : .default,
+                            value: isRefreshing
+                        )
+                }
+                .buttonStyle(.borderless)
+                .disabled(isRefreshing)
+                .help(isRefreshing ? "Refreshing quota" : "Refresh quota")
+                .accessibilityLabel(isRefreshing ? "Refreshing quota" : "Refresh quota")
+            }
+
+            if let active = activeAccount {
+                if let secondary = active.secondaryLabel {
+                    HStack(spacing: Spacing.s) {
+                        Text(secondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+
+                        InlineWeeklyQuotaBar(state: active.weekly)
+
+                        Spacer(minLength: 0)
+                    }
+                }
+
+                WeeklyResetCaption(state: active.weekly)
+
+                ResetCreditsView(snapshot: active.resetCredits, presentation: .header)
+
+                if let checkedAt {
+                    Text("Checked \(checkedAt, style: .relative) ago")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let lastRefresh = active.lastRefresh {
+                    Text("Cached usage from \(lastRefresh.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Quota unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+
+/// Single account row in the popover list. Owns its own hover state so the
+/// background tint updates as the cursor enters / leaves the row.
+private struct AccountRow: View {
+    let account: AccountSnapshot
+    let isDisabled: Bool
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: Spacing.m) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack(spacing: Spacing.s) {
+                        Text(account.primaryLabel)
+                            .fontWeight(account.isActive ? .semibold : .regular)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+
+                        if account.secondaryLabel == nil {
+                            InlineWeeklyQuotaBar(state: account.weekly)
+                        }
+
+                        if account.isUsageStale {
+                            Label("Stale", systemImage: "clock.badge.exclamationmark")
+                                .font(.caption2)
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, Spacing.s)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.18), in: Capsule())
+                        } else if account.hasResetPending() {
+                            Label("Reset due", systemImage: "arrow.clockwise")
+                                .font(.caption2)
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, Spacing.s)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.18), in: Capsule())
+                        }
+
+                        Spacer(minLength: 0)
+
+                        PlanPill(label: account.planLabel)
+
+                        if account.isActive {
+                            ActivePill()
+                        }
+                    }
+
+                    if let secondary = account.secondaryLabel {
+                        HStack(spacing: Spacing.s) {
+                            Text(secondary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+
+                            InlineWeeklyQuotaBar(state: account.weekly)
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+
+                    WeeklyResetCaption(state: account.weekly)
+
+                    ResetCreditsView(snapshot: account.resetCredits, presentation: .accountRow)
+                }
+            }
+            .padding(.vertical, Spacing.s)
+            .padding(.horizontal, Spacing.s)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: Radius.medium)
+                    .fill(Color.codexAccountFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.medium)
+                            .fill(rowInteractionFill)
+                    }
+            }
+            .contentShape(.rect(cornerRadius: Radius.medium))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+        .accessibilityHint(account.isActive ? "Current account" : "Switches accounts and restarts Codex")
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+
+    private var rowInteractionFill: Color {
+        if account.isActive {
+            return Color.codexActiveFill
+        }
+
+        if isHovered && !isDisabled {
+            return Color.codexHoverFill
+        }
+
+        return .clear
+    }
+
+    private var accessibilitySummary: String {
+        var parts = [account.primaryLabel, account.planLabel]
+        if account.isActive { parts.append("active") }
+        if account.isUsageStale { parts.append("quota data stale") }
+        if account.hasResetPending() { parts.append("quota reset due") }
+        parts.append("weekly \(QuotaSummary.weeklyLimitLeft(for: account.weekly))")
+        parts.append("usage limit resets \(ResetCreditsSummary.availability(for: account.resetCredits))")
+        parts.append(contentsOf: ResetCreditsSummary.expiryLines(for: account.resetCredits))
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// Trailing "Active" pill shown on the active account row.
+private struct ActivePill: View {
+    var body: some View {
+        Text("Active")
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, Spacing.s)
+            .padding(.vertical, 2)
+            .background(Color.codexAccent.opacity(0.15), in: Capsule())
+    }
+}
+
+/// Outlined plan capsule (e.g. "Plus", "Pro", "Unknown").
+private struct PlanPill: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Spacing.s)
+            .padding(.vertical, 2)
+            .overlay(
+                Capsule()
+                    .strokeBorder(.secondary.opacity(0.35), lineWidth: 0.5)
+            )
     }
 }

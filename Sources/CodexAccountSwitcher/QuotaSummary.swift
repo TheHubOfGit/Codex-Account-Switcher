@@ -33,6 +33,33 @@ enum QuotaSummary {
         )
     }
 
+    static func compactResetDistance(resetAt: Date, now: Date = .now) -> String {
+        let interval = resetAt.timeIntervalSince(now)
+        let isPast = interval <= 0
+        let totalSeconds = Int(abs(interval))
+
+        guard totalSeconds > 0 else {
+            return "now"
+        }
+
+        let days = totalSeconds / (24 * 60 * 60)
+        let hours = (totalSeconds % (24 * 60 * 60)) / (60 * 60)
+        let minutes = max(1, (totalSeconds % (60 * 60)) / 60)
+
+        let duration: String
+        if days > 0, hours > 0 {
+            duration = "\(days)d \(hours)h"
+        } else if days > 0 {
+            duration = "\(days)d"
+        } else if hours > 0 {
+            duration = "\(hours)h"
+        } else {
+            duration = "\(minutes)m"
+        }
+
+        return isPast ? "\(duration) ago" : "in \(duration)"
+    }
+
     private static func limitLeft(
         for state: QuotaWindowState,
         resetDetail: String?

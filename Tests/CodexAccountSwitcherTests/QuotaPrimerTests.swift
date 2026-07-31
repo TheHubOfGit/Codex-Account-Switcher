@@ -22,7 +22,7 @@ struct QuotaPrimerTests {
     }
 
     @Test
-    func quotaPrimerSettingsPersistAcrossAppStateInstances() async {
+    func scheduledQuotaPrimerCannotBeEnabled() async {
         let defaults = makePrimerDefaults()
         let appState = AppState(
             authRunner: RecordingAuthRunner(),
@@ -44,7 +44,7 @@ struct QuotaPrimerTests {
             userDefaults: defaults
         )
 
-        #expect(reloadedState.quotaPrimerEnabled)
+        #expect(!reloadedState.quotaPrimerEnabled)
         #expect(reloadedState.quotaPrimerIntervalMinutes == 60)
     }
 
@@ -80,7 +80,7 @@ struct QuotaPrimerTests {
     }
 
     @Test
-    func scheduledPrimerPrimesOnlyFullWindowAccountsAndRefreshesAfterward() async {
+    func legacyScheduledPrimerEntryPointPrimesOnlyActiveAccount() async {
         let now = Date(timeIntervalSince1970: 1_779_000_000)
         let authRunner = RecordingAuthRunner()
         let appState = AppState(
@@ -106,10 +106,10 @@ struct QuotaPrimerTests {
 
         let requests = await authRunner.primeRequests
         #expect(requests == [
-            .init(accountKey: "full-window", accountQuery: "full@example.com")
+            .init(accountKey: "active", accountQuery: "active@example.com")
         ])
         #expect(await authRunner.refreshUsageCount == 2)
-        #expect(appState.lastQuotaPrimerStatusMessage == "Primed 1 account and refreshed quota.")
+        #expect(appState.lastQuotaPrimerStatusMessage == "Sent a primer message from active@example.com; quota could not be verified.")
     }
 
     @Test
@@ -159,40 +159,98 @@ struct QuotaPrimerTests {
         #expect(await authRunner.primeRequests == [
             .init(accountKey: "active", accountQuery: "active@example.com")
         ])
-        #expect(appState.lastQuotaPrimerStatusMessage == "Primed 1 account and refreshed quota.")
+        #expect(appState.lastQuotaPrimerStatusMessage == "Sent a primer message from active@example.com; quota could not be verified.")
     }
 
     @Test
-    func primerWorkspaceCopiesStoredAccountAuthIntoIsolatedCodexHome() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CodexAccountSwitcherTests-\(UUID().uuidString)", isDirectory: true)
-        let accountsDirectory = root.appendingPathComponent("accounts", isDirectory: true)
-        let tempRoot = root.appendingPathComponent("primer", isDirectory: true)
-        try FileManager.default.createDirectory(at: accountsDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let storedAuth = accountsDirectory.appendingPathComponent("YWNjdC0x.auth.json")
-        try Data(#"{"token":"stored"}"#.utf8).write(to: storedAuth)
-
-        let workspace = try CodexPrimerWorkspace.make(
-            accountKey: "acct-1",
-            accountsDirectory: accountsDirectory,
-            temporaryDirectory: tempRoot,
-            fileManager: .default
+    func primeAllAccountsUsesIsolatedAuthWithoutRestartOrSwitch() async {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let authRunner = RecordingAuthRunner()
+        let codexController = RecordingCodexController()
+        let appState = AppState(
+            authRunner: authRunner,
+            registryStore: SnapshotRegistryStore(
+                snapshot: makePrimerRegistrySnapshot(
+                    activeAccountKey: "active",
+                    accounts: [
+                        makePrimerRegistryAccount(accountKey: "active", email: "active@example.com", weeklyResetAt: nil),
+                        makePrimerRegistryAccount(accountKey: "work", email: "work@example.com", weeklyResetAt: nil),
+                        makePrimerRegistryAccount(accountKey: "spare", email: "spare@example.com", weeklyResetAt: nil)
+                    ]
+                )
+            ),
+            codexController: codexController,
+            notifications: RecordingNotifications(),
+            startAutomatically: false,
+            userDefaults: makePrimerDefaults()
         )
 
-        let isolatedAuth = workspace.codexHome.appendingPathComponent("auth.json")
-        #expect(FileManager.default.fileExists(atPath: isolatedAuth.path))
-        #expect(try String(contentsOf: isolatedAuth, encoding: .utf8) == #"{"token":"stored"}"#)
-        #expect(workspace.environmentOverrides["CODEX_HOME"] == workspace.codexHome.path)
+        await appState.refreshAll(showNotifications: false)
+        let orderedAccounts = [appState.activeAccount!] + appState.accounts.filter { !$0.isActive }
+        await appState.primeAllAccounts(now: now)
+
+        #expect(await authRunner.primeRequests.map(\.accountKey) == orderedAccounts.map(\.accountKey))
+        #expect(await authRunner.switchQueries.isEmpty)
+        #expect(codexController.quitCount == 0)
+        #expect(codexController.launchCount == 0)
+        #expect(codexController.relaunchCount == 0)
+        #expect(await authRunner.refreshUsageCount == 2)
+        #expect(appState.lastQuotaPrimerStatusMessage?.hasPrefix("Sent 3/3 primer messages") == true)
+    }
+
+    @Test
+    func primeAllContinuesAfterFailureAndPreservesRefreshWarning() async {
+        let now = Date(timeIntervalSince1970: 1_779_000_000)
+        let authRunner = RecordingAuthRunner(
+            refreshResult: UsageRefreshResult(
+                successfulAccountEmails: ["active@example.com", "spare@example.com"],
+                failedAccounts: ["work@example.com": "401 Unauthorized"]
+            ),
+            failedPrimeAccountKeys: ["work"]
+        )
+        let codexController = RecordingCodexController()
+        let appState = AppState(
+            authRunner: authRunner,
+            registryStore: SnapshotRegistryStore(
+                snapshot: makePrimerRegistrySnapshot(
+                    activeAccountKey: "active",
+                    accounts: [
+                        makePrimerRegistryAccount(accountKey: "active", email: "active@example.com", weeklyResetAt: nil),
+                        makePrimerRegistryAccount(accountKey: "work", email: "work@example.com", weeklyResetAt: nil),
+                        makePrimerRegistryAccount(accountKey: "spare", email: "spare@example.com", weeklyResetAt: nil)
+                    ]
+                )
+            ),
+            codexController: codexController,
+            notifications: RecordingNotifications(),
+            startAutomatically: false,
+            userDefaults: makePrimerDefaults()
+        )
+
+        await appState.refreshAll(showNotifications: false)
+        await appState.primeAllAccounts(now: now)
+
+        #expect(await authRunner.primeRequests.map(\.accountKey) == ["active", "spare", "work"])
+        #expect(await authRunner.switchQueries.isEmpty)
+        #expect(codexController.quitCount == 0)
+        #expect(codexController.launchCount == 0)
+        #expect(codexController.relaunchCount == 0)
+        #expect(appState.lastQuotaPrimerStatusMessage?.contains("Sent 2/3 primer messages") == true)
+        #expect(appState.lastQuotaPrimerStatusMessage?.contains("work@example.com") == true)
+        #expect(appState.refreshWarningMessage?.contains("2 refreshed, 1 cached") == true)
+        #expect(appState.headerMessage == appState.refreshWarningMessage)
     }
 
     @Test
     func primerCommandPlacesGlobalApprovalOptionBeforeExecSubcommand() {
-        let arguments = CodexPrimerCommand.arguments
+        let arguments = CodexPrimerCommand.arguments(
+            outputURL: URL(fileURLWithPath: "/tmp/primer-response.txt")
+        )
 
         #expect(arguments.firstIndex(of: "--ask-for-approval")! < arguments.firstIndex(of: "exec")!)
         #expect(arguments.contains("--ephemeral"))
+        #expect(arguments.contains("--ignore-user-config"))
+        #expect(arguments.contains("--output-last-message"))
         #expect(arguments.last == "Reply exactly: hi")
     }
 }
@@ -261,6 +319,7 @@ private func makePrimerRegistryAccount(
             secondary: UsageWindow(usedPercent: 1, windowMinutes: 10_080, resetsAt: weeklyResetAt?.timeIntervalSince1970),
             planType: "business"
         ),
-        lastUsageAt: Date.now.timeIntervalSince1970
+        lastUsageAt: Date.now.timeIntervalSince1970,
+        chatGPTAccountID: "chatgpt-\(accountKey)"
     )
 }

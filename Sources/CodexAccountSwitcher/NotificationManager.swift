@@ -56,6 +56,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, Not
                 NSLog("CodexAccountSwitcher notification added: %@", requestID)
             }
         }
+
     }
 
     func promptForAutoSwitch(from currentAccount: AccountSnapshot, to candidate: AccountSnapshot, onConfirm: @escaping () async -> Void) {
@@ -81,6 +82,11 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, Not
             } else {
                 NSLog("CodexAccountSwitcher auto-switch notification added: %@", requestID)
             }
+        }
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10 * 60))
+            self?.actions.removeValue(forKey: requestID)
         }
     }
 

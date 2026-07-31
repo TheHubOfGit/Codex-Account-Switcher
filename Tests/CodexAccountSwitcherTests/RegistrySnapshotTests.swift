@@ -4,6 +4,37 @@ import Testing
 
 struct RegistrySnapshotTests {
     @Test
+    func classifiesSinglePrimaryWeeklyWindowByDuration() throws {
+        let data = Data(
+            """
+            {
+              "active_account_key": "acct-1",
+              "auto_switch": {"enabled": false, "threshold_5h_percent": 10, "threshold_weekly_percent": 5},
+              "api": {"usage": true},
+              "accounts": [{
+                "account_key": "acct-1",
+                "email": "weekly@example.com",
+                "alias": "",
+                "account_name": null,
+                "plan": "team",
+                "last_usage": {
+                  "primary": {"used_percent": 43, "window_minutes": 10080, "resets_at": 1785273696},
+                  "secondary": null
+                },
+                "last_usage_at": 1785000000
+              }]
+            }
+            """.utf8
+        )
+
+        let account = try #require(
+            RegistrySnapshot.decode(from: data).accountSnapshots().first
+        )
+        #expect(account.fiveHour.remainingPercent == nil)
+        #expect(account.weekly.remainingPercent == 57)
+    }
+
+    @Test
     func decodesRealisticRegistryShapeAndMarksActiveAccount() throws {
         let data = Data(
             """
@@ -81,7 +112,7 @@ struct RegistrySnapshotTests {
     }
 
     @Test
-    func keepsOldAccountActivityFreshWhenSnapshotWasRecentlyRefreshed() throws {
+    func keepsOldUsageFreshOnlyAfterSuccessfulRefresh() throws {
         let data = Data(
             """
             {
@@ -121,12 +152,61 @@ struct RegistrySnapshotTests {
             """.utf8
         )
 
-        var snapshot = try RegistrySnapshot.decode(from: data)
-        snapshot.refreshedAt = Date(timeIntervalSince1970: 1778987890)
-        let accounts = snapshot.accountSnapshots(now: Date(timeIntervalSince1970: 1778987900))
+        let snapshot = try RegistrySnapshot.decode(from: data)
+        let accounts = snapshot.accountSnapshots(
+            now: Date(timeIntervalSince1970: 1778987900),
+            usageCheckedAtByAccountKey: [
+                "acct-1": Date(timeIntervalSince1970: 1778987890)
+            ]
+        )
 
-        #expect(!accounts[0].isUsageStale)
+        #expect(!accounts[0].isUsageStale(at: Date(timeIntervalSince1970: 1778987900)))
         #expect(accounts[0].fiveHour.remainingPercent == 50)
+    }
+
+    @Test
+    func partialRefreshKeepsOnlyFailedAccountStale() throws {
+        let data = Data(
+            """
+            {
+              "active_account_key": "acct-1",
+              "auto_switch": {"enabled": false, "threshold_5h_percent": 10, "threshold_weekly_percent": 5},
+              "api": {"usage": true},
+              "accounts": [
+                {
+                  "account_key": "acct-1",
+                  "email": "fresh@example.com",
+                  "alias": "",
+                  "account_name": null,
+                  "plan": "team",
+                  "last_usage": {"primary": {"used_percent": 10}, "secondary": {"used_percent": 20}},
+                  "last_usage_at": 1000
+                },
+                {
+                  "account_key": "acct-2",
+                  "email": "failed@example.com",
+                  "alias": "",
+                  "account_name": null,
+                  "plan": "team",
+                  "last_usage": {"primary": {"used_percent": 30}, "secondary": {"used_percent": 40}},
+                  "last_usage_at": 1000
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        let now = Date(timeIntervalSince1970: 10_000)
+        let snapshot = try RegistrySnapshot.decode(from: data)
+        let accounts = snapshot.accountSnapshots(
+            now: now,
+            usageCheckedAtByAccountKey: ["acct-1": now]
+        )
+        let fresh = try #require(accounts.first { $0.email == "fresh@example.com" })
+        let failed = try #require(accounts.first { $0.email == "failed@example.com" })
+
+        #expect(!fresh.isUsageStale(at: now))
+        #expect(failed.isUsageStale(at: now))
     }
 
     @Test
@@ -170,11 +250,42 @@ struct RegistrySnapshotTests {
             """.utf8
         )
 
-        var snapshot = try RegistrySnapshot.decode(from: data)
-        snapshot.refreshedAt = Date(timeIntervalSince1970: 1778980000)
-        let accounts = snapshot.accountSnapshots(now: Date(timeIntervalSince1970: 1778987900))
+        let snapshot = try RegistrySnapshot.decode(from: data)
+        let accounts = snapshot.accountSnapshots(now: Date(timeIntervalSince1970: 1778990000))
 
-        #expect(accounts[0].isUsageStale)
+        #expect(accounts[0].isUsageStale(at: Date(timeIntervalSince1970: 1778990000)))
         #expect(accounts[0].fiveHour.remainingPercent == 50)
+    }
+
+    @Test
+    func freshnessChangesAsClockAdvancesWithoutReloading() throws {
+        let data = Data(
+            """
+            {
+              "active_account_key": "acct-1",
+              "auto_switch": {"enabled": false, "threshold_5h_percent": 10, "threshold_weekly_percent": 5},
+              "api": {"usage": true},
+              "accounts": [{
+                "account_key": "acct-1",
+                "email": "one@example.com",
+                "alias": "",
+                "account_name": null,
+                "plan": "plus",
+                "last_usage": {"primary": {"used_percent": 20}, "secondary": {"used_percent": 30}, "plan_type": "plus"},
+                "last_usage_at": 1000
+              }]
+            }
+            """.utf8
+        )
+        let snapshot = try RegistrySnapshot.decode(from: data)
+        let accounts = snapshot.accountSnapshots(
+            now: Date(timeIntervalSince1970: 1_010),
+            usageCheckedAtByAccountKey: [
+                "acct-1": Date(timeIntervalSince1970: 1_000)
+            ]
+        )
+
+        #expect(!accounts[0].isUsageStale(at: Date(timeIntervalSince1970: 2_799)))
+        #expect(accounts[0].isUsageStale(at: Date(timeIntervalSince1970: 2_801)))
     }
 }
