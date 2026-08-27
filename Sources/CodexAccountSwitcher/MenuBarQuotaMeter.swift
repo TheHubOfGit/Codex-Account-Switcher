@@ -1,7 +1,7 @@
 import Foundation
 
 struct MenuBarQuotaMeterState: Equatable {
-    private static let weeklyWindowDuration: TimeInterval = 7 * 24 * 60 * 60
+    private static let fiveHourWindowDuration: TimeInterval = 5 * 60 * 60
 
     let remainingPercent: Int?
     let combinedRemainingPercent: Int?
@@ -17,14 +17,14 @@ struct MenuBarQuotaMeterState: Equatable {
         let summary = FleetQuotaSummary.make(from: accounts, now: now)
 
         self.init(
-            remainingPercent: activeAccount?.weekly.remainingPercent,
-            combinedRemainingPercent: summary.averageWeeklyRemaining,
+            remainingPercent: activeAccount?.fiveHour.remainingPercent,
+            combinedRemainingPercent: summary.averageFiveHourRemaining,
             resetProgress: Self.resetProgress(
-                resetAt: activeAccount?.weekly.resetAt,
+                resetAt: activeAccount?.fiveHour.resetAt,
                 now: now
             ),
-            isStale: activeAccount?.weekly.isStale(at: now) ?? false,
-            limitLabel: "Weekly"
+            isStale: activeAccount?.fiveHour.isStale(at: now) ?? false,
+            limitLabel: "5h"
         )
     }
 
@@ -33,7 +33,7 @@ struct MenuBarQuotaMeterState: Equatable {
         combinedRemainingPercent: Int? = nil,
         resetProgress: Double? = nil,
         isStale: Bool,
-        limitLabel: String = "Weekly"
+        limitLabel: String = "5h"
     ) {
         self.remainingPercent = remainingPercent
         self.combinedRemainingPercent = combinedRemainingPercent
@@ -85,6 +85,6 @@ struct MenuBarQuotaMeterState: Equatable {
         }
 
         let timeRemaining = resetAt.timeIntervalSince(now)
-        return 1 - min(max(timeRemaining / weeklyWindowDuration, 0), 1)
+        return 1 - min(max(timeRemaining / fiveHourWindowDuration, 0), 1)
     }
 }

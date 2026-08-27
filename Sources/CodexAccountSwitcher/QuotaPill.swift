@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Compact pill used for displaying a quota window summary inside the popover.
-/// One pill per window — used in both the active-account header and the
-/// per-account list rows so the typography stays consistent across the popover.
+/// Compact pill primitive for displaying a quota window summary inside the
+/// popover when a text-first presentation is appropriate.
 struct QuotaPill: View {
     enum Size {
         case regular
@@ -56,12 +55,21 @@ struct QuotaPill: View {
     }
 }
 
-/// A dense weekly quota indicator that sits beside an account email.
-struct InlineWeeklyQuotaBar: View {
+/// A dense quota indicator that sits beside an account identity.
+///
+/// The label is intentionally short (for example, "5h" or "Week") so both
+/// windows can be shown together without turning account rows into a second
+/// dashboard.
+struct InlineQuotaBar: View {
+    let label: String
     let state: QuotaWindowState
 
     var body: some View {
         HStack(spacing: Spacing.xs) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -72,21 +80,30 @@ struct InlineWeeklyQuotaBar: View {
                         .frame(width: proxy.size.width * fillFraction)
                 }
             }
-            .frame(width: 42, height: 6)
+            .frame(width: 30, height: 6)
 
             Text(state.remainingPercent.map { "\($0)%" } ?? "—")
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 32, alignment: .trailing)
+                .frame(minWidth: 26, alignment: .trailing)
         }
         .fixedSize()
         .opacity(state.isStale ? 0.7 : 1)
-        .help("Weekly \(QuotaSummary.weeklyLimitLeft(for: state))")
+        .help("\(label) \(summary)")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Weekly quota")
-        .accessibilityValue(QuotaSummary.weeklyLimitLeft(for: state))
+        .accessibilityLabel("\(label) quota")
+        .accessibilityValue(summary)
+    }
+
+    private var summary: String {
+        switch label {
+        case "5h":
+            return QuotaSummary.fiveHourLimitLeft(for: state)
+        default:
+            return QuotaSummary.weeklyLimitLeft(for: state)
+        }
     }
 
     private var fillFraction: CGFloat {
@@ -114,9 +131,34 @@ struct InlineWeeklyQuotaBar: View {
     }
 }
 
-/// Exact weekly reset timing shown beneath each account identity.
-struct WeeklyResetCaption: View {
+/// Backwards-compatible weekly spelling for call sites that only show the
+/// weekly window.
+struct InlineWeeklyQuotaBar: View {
     let state: QuotaWindowState
+
+    var body: some View {
+        InlineQuotaBar(label: "Week", state: state)
+    }
+}
+
+/// Exact reset timing shown beneath each account identity.
+struct QuotaResetCaption: View {
+    enum Window {
+        case fiveHour
+        case weekly
+
+        var label: String {
+            switch self {
+            case .fiveHour:
+                return "5h"
+            case .weekly:
+                return "Weekly"
+            }
+        }
+    }
+
+    let state: QuotaWindowState
+    let window: Window
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -132,7 +174,7 @@ struct WeeklyResetCaption: View {
             )
             .help(accessibilityValue(now: context.date))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Weekly quota reset")
+            .accessibilityLabel("\(window.label) quota reset")
             .accessibilityValue(accessibilityValue(now: context.date))
         }
     }
@@ -142,7 +184,9 @@ struct WeeklyResetCaption: View {
             return "Reset time unavailable"
         }
 
-        let prefix = state.isResetPending(at: now) ? "Reset due" : "Resets"
+        let prefix = state.isResetPending(at: now)
+            ? "\(window.label) reset due"
+            : "\(window.label) resets"
         let distance = QuotaSummary.compactResetDistance(resetAt: resetAt, now: now)
         let cachedSuffix = state.isStale(at: now) ? " · cached" : ""
         return "\(prefix) \(formatted(resetAt)) · \(distance)\(cachedSuffix)"
@@ -167,5 +211,21 @@ struct WeeklyResetCaption: View {
                 .hour()
                 .minute()
         )
+    }
+}
+
+struct FiveHourResetCaption: View {
+    let state: QuotaWindowState
+
+    var body: some View {
+        QuotaResetCaption(state: state, window: .fiveHour)
+    }
+}
+
+struct WeeklyResetCaption: View {
+    let state: QuotaWindowState
+
+    var body: some View {
+        QuotaResetCaption(state: state, window: .weekly)
     }
 }

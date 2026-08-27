@@ -4,7 +4,7 @@ import Testing
 
 struct MenuBarQuotaMeterTests {
     @Test
-    func stateUsesActiveAccountsWeeklyRemainingPercent() {
+    func stateUsesActiveAccountsFiveHourRemainingPercent() {
         let account = AccountSnapshot(
             accountKey: "acct-1",
             email: "one@example.com",
@@ -19,13 +19,13 @@ struct MenuBarQuotaMeterTests {
 
         let state = MenuBarQuotaMeterState(activeAccount: account, accounts: [account])
 
-        #expect(state.remainingPercent == 80)
-        #expect(state.fillFraction == 0.8)
-        #expect(state.combinedRemainingPercent == 80)
-        #expect(state.combinedFillFraction == 0.8)
+        #expect(state.remainingPercent == 63)
+        #expect(state.fillFraction == 0.63)
+        #expect(state.combinedRemainingPercent == 63)
+        #expect(state.combinedFillFraction == 0.63)
         #expect(
             state.accessibilityDescription
-                == "Weekly active account 80 percent left; all accounts average 80 percent left"
+                == "5h active account 63 percent left; all accounts average 63 percent left"
         )
     }
 
@@ -43,18 +43,18 @@ struct MenuBarQuotaMeterTests {
         let stale = MenuBarQuotaMeterState(remainingPercent: 42, isStale: true)
         let unavailable = MenuBarQuotaMeterState(activeAccount: nil)
 
-        #expect(stale.accessibilityDescription == "Weekly active account 42 percent left, stale")
+        #expect(stale.accessibilityDescription == "5h active account 42 percent left, stale")
         #expect(unavailable.remainingPercent == nil)
         #expect(unavailable.fillFraction == 0)
-        #expect(unavailable.accessibilityDescription == "Weekly limit unavailable")
+        #expect(unavailable.accessibilityDescription == "5h limit unavailable")
     }
 
     @Test
-    func stateAveragesFreshWeeklyQuotaAcrossAccounts() {
+    func stateAveragesFreshFiveHourQuotaAcrossAccounts() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let accounts = [
-            account(key: "one", weeklyUsed: 20, resetAt: now.addingTimeInterval(4 * 24 * 60 * 60)),
-            account(key: "two", weeklyUsed: 60, resetAt: now.addingTimeInterval(4 * 24 * 60 * 60)),
+            account(key: "one", fiveHourUsed: 20, resetAt: now.addingTimeInterval(4 * 60 * 60)),
+            account(key: "two", fiveHourUsed: 60, resetAt: now.addingTimeInterval(4 * 60 * 60)),
         ]
 
         let state = MenuBarQuotaMeterState(
@@ -67,10 +67,10 @@ struct MenuBarQuotaMeterTests {
     }
 
     @Test
-    func stateCalculatesWeeklyResetProgressForPaceTick() {
+    func stateCalculatesFiveHourResetProgressForPaceTick() {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let resetAt = now.addingTimeInterval(3.5 * 24 * 60 * 60)
-        let active = account(key: "one", weeklyUsed: 20, resetAt: resetAt)
+        let resetAt = now.addingTimeInterval(2.5 * 60 * 60)
+        let active = account(key: "one", fiveHourUsed: 20, resetAt: resetAt)
 
         let state = MenuBarQuotaMeterState(
             activeAccount: active,
@@ -83,7 +83,7 @@ struct MenuBarQuotaMeterTests {
 
     private func account(
         key: String,
-        weeklyUsed: Int,
+        fiveHourUsed: Int,
         resetAt: Date
     ) -> AccountSnapshot {
         AccountSnapshot(
@@ -93,11 +93,15 @@ struct MenuBarQuotaMeterTests {
             accountName: nil,
             plan: "Team",
             isActive: key == "one",
-            fiveHour: QuotaWindowState(usedPercent: 0, resetAt: nil, isStale: false),
-            weekly: QuotaWindowState(
-                usedPercent: weeklyUsed,
+            fiveHour: QuotaWindowState(
+                usedPercent: fiveHourUsed,
                 resetAt: resetAt,
                 checkedAt: resetAt.addingTimeInterval(-60)
+            ),
+            weekly: QuotaWindowState(
+                usedPercent: 0,
+                resetAt: nil,
+                isStale: false
             ),
             lastRefresh: nil
         )

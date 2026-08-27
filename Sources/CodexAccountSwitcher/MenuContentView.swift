@@ -81,6 +81,12 @@ struct MenuContentView: View {
             }
 
             quotaMeter(
+                title: "5h average",
+                value: summary.averageFiveHourRemaining,
+                lowValue: summary.lowestFiveHourRemaining
+            )
+
+            quotaMeter(
                 title: "Weekly average",
                 value: weeklyAverageValue,
                 lowValue: summary.lowestWeeklyRemaining,
@@ -485,7 +491,7 @@ private struct PopoverHeaderView: View {
                     .layoutPriority(1)
 
                 if let active = activeAccount, active.secondaryLabel == nil {
-                    InlineWeeklyQuotaBar(state: active.weekly)
+                    quotaIndicators(for: active)
                 }
 
                 Spacer()
@@ -515,13 +521,16 @@ private struct PopoverHeaderView: View {
                             .lineLimit(1)
                             .layoutPriority(1)
 
-                        InlineWeeklyQuotaBar(state: active.weekly)
+                        quotaIndicators(for: active)
 
                         Spacer(minLength: 0)
                     }
                 }
 
-                WeeklyResetCaption(state: active.weekly)
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    FiveHourResetCaption(state: active.fiveHour)
+                    WeeklyResetCaption(state: active.weekly)
+                }
 
                 ResetCreditsView(snapshot: active.resetCredits, presentation: .header)
 
@@ -548,6 +557,14 @@ private struct PopoverHeaderView: View {
             }
         }
     }
+
+    private func quotaIndicators(for account: AccountSnapshot) -> some View {
+        HStack(spacing: Spacing.s) {
+            InlineQuotaBar(label: "5h", state: account.fiveHour)
+            InlineQuotaBar(label: "Week", state: account.weekly)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
 }
 
 
@@ -569,10 +586,6 @@ private struct AccountRow: View {
                             .fontWeight(account.isActive ? .semibold : .regular)
                             .lineLimit(1)
                             .layoutPriority(1)
-
-                        if account.secondaryLabel == nil {
-                            InlineWeeklyQuotaBar(state: account.weekly)
-                        }
 
                         if account.isUsageStale {
                             Label("Stale", systemImage: "clock.badge.exclamationmark")
@@ -599,21 +612,24 @@ private struct AccountRow: View {
                         }
                     }
 
-                    if let secondary = account.secondaryLabel {
-                        HStack(spacing: Spacing.s) {
+                    HStack(spacing: Spacing.s) {
+                        if let secondary = account.secondaryLabel {
                             Text(secondary)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .layoutPriority(1)
-
-                            InlineWeeklyQuotaBar(state: account.weekly)
-
-                            Spacer(minLength: 0)
                         }
+
+                        quotaIndicators(for: account)
+
+                        Spacer(minLength: 0)
                     }
 
-                    WeeklyResetCaption(state: account.weekly)
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        FiveHourResetCaption(state: account.fiveHour)
+                        WeeklyResetCaption(state: account.weekly)
+                    }
 
                     ResetCreditsView(snapshot: account.resetCredits, presentation: .accountRow)
                 }
@@ -658,10 +674,19 @@ private struct AccountRow: View {
         if account.isActive { parts.append("active") }
         if account.isUsageStale { parts.append("quota data stale") }
         if account.hasResetPending() { parts.append("quota reset due") }
+        parts.append("5-hour \(QuotaSummary.fiveHourLimitLeft(for: account.fiveHour))")
         parts.append("weekly \(QuotaSummary.weeklyLimitLeft(for: account.weekly))")
         parts.append("usage limit resets \(ResetCreditsSummary.availability(for: account.resetCredits))")
         parts.append(contentsOf: ResetCreditsSummary.expiryLines(for: account.resetCredits))
         return parts.joined(separator: ", ")
+    }
+
+    private func quotaIndicators(for account: AccountSnapshot) -> some View {
+        HStack(spacing: Spacing.s) {
+            InlineQuotaBar(label: "5h", state: account.fiveHour)
+            InlineQuotaBar(label: "Week", state: account.weekly)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
